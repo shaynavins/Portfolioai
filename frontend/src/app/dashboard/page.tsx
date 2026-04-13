@@ -1,0 +1,421 @@
+"use client";
+
+import { useEffect, useState, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  Github, Upload, RefreshCw, ExternalLink, CheckCircle,
+  Clock, AlertCircle, Zap, Settings, LogOut, FileText,
+} from "lucide-react";
+import axios from "axios";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+type BuildStatus = "idle" | "pending" | "running" | "completed" | "failed";
+
+interface User {
+  id: string;
+  github_username: string;
+  name: string;
+  avatar_url: string;
+  plan: string;
+}
+
+interface Portfolio {
+  site_url: string;
+  is_published: boolean;
+  theme: string;
+  last_built_at: string;
+  portfolio_data: Record<string, unknown>;
+}
+
+interface Repo {
+  full_name: string;
+  name: string;
+  description: string;
+  language: string;
+  stars: number;
+}
+
+const THEMES = [
+  { id: "minimal", label: "Minimal", desc: "Clean & professional" },
+  { id: "dark", label: "Dark", desc: "Dark mode first" },
+  { id: "creative", label: "Creative", desc: "Bold & expressive" },
+];
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [selectedRepos, setSelectedRepos] = useState<string[]>([]);
+  const [selectedTheme, setSelectedTheme] = useState("minimal");
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [buildStatus, setBuildStatus] = useState<BuildStatus>("idle");
+  const [buildSteps, setBuildSteps] = useState<string[]>([]);
+  const [buildError, setBuildError] = useState<string | null>(null);
+  const [siteUrl, setSiteUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  // ── Auth & initial data ───────────────────────────────────────────────────
+  useEffect(() => {
+    const paramToken = searchParams.get("token");
+    const stored = localStorage.getItem("portfolioai_token");
+    const activeToken = paramToken || stored;
+
+    if (!activeToken) { router.push("/"); return; }
+
+    if (paramToken) {
+      localStorage.setItem("portfolioai_token", paramToken);
+      router.replace("/dashboard");
+    }
+    setToken(activeToken);
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    const headers = { Authorization: `Bearer ${token}` };
+
+    Promise.all([
+      axios.get(`${API}/api/auth/me`, { headers }),
+      axios.get(`${API}/api/portfolio/me`, { headers }),
+      axios.get(`${API}/api/portfolio/repos`, { headers }),
+    ])
+      .then(([userRes, portRes, reposRes]) => {
+        setUser(userRes.data);
+        setPortfolio(portRes.data.portfolio);
+        if (portRes.data.portfolio?.site_url) setSiteUrl(portRes.data.portfolio.site_url);
+        setRepos(reposRes.data.repos || []);
+      })
+      .catch(() => { localStorage.removeItem("portfolioai_token"); router.push("/"); })
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  // ── Build trigger ─────────────────────────────────────────────────────────
+  const triggerBuild = async () => {
+    if (!token) return;
+    setBuildStatus("pending");
+    setBuildSteps([]);
+    setBuildError(null);
+    setSiteUrl(null);
+
+    const formData = new FormData();
+    formData.append("theme", selectedTheme);
+    if (selectedRepos.length > 0)
+      formData.append("selected_repos", JSON.stringify(selectedRepos));
+    if (resumeFile) formData.append("resume", resumeFile);
+
+    try {
+      const res = await axios.post(`${API}/api/portfolio/build`, formData, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" },
+      });
+      const newJobId = res.data.job_id;
+      setJobId(newJobId);
+      startSSEStream(newJobId);
+    } catch (err) {
+      setBuildStatus("failed");
+      setBuildError("Failed to start build. Please try again.");
+    }
+  };
+
+  // ── SSE Progress Stream ───────────────────────────────────────────────────
+  const startSSEStream = (id: string) => {
+    if (eventSourceRef.current) eventSourceRef.current.close();
+
+    const es = new EventSource(`${API}/api/portfolio/build/${id}/stream`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setBuildStatus(data.status);
+      if (data.steps) setBuildSteps(data.steps);
+      if (data.result?.site_url) setSiteUrl(data.result.site_url);
+      if (data.error) setBuildError(data.error);
+      if (data.status === "completed" || data.status === "failed") es.close();
+    };
+
+    es.onerror = () => {
+      setBuildStatus("failed");
+      setBuildError("Connection lost. Check job status manually.");
+      es.close();
+    };
+  };
+
+  const toggleRepo = (fullName: string) => {
+    setSelectedRepos((prev) =>
+      prev.includes(fullName) ? prev.filter((r) => r !== fullName) : [...prev, fullName]
+    );
+  };
+
+  const logout = () => {
+    localStorage.removeItem("portfolioai_token");
+    router.push("/");
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-gray-500">Loading your dashboard…</p>
+        </div>
+      </div>
+    );
+  }
+
+  const isBuilding = buildStatus === "pending" || buildStatus === "running";
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Top bar */}
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-40">
+        <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
+          <span className="font-bold text-gray-900">
+            Portfolio<span className="text-blue-600">AI</span>
+          </span>
+          <div className="flex items-center gap-4">
+            <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium capitalize">
+              {user?.plan} plan
+            </span>
+            {user?.avatar_url && (
+              <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />
+            )}
+            <button onClick={logout} className="text-gray-400 hover:text-gray-600 transition-colors">
+              <LogOut size={16} />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-6 py-10">
+        {/* Welcome */}
+        <div className="mb-10">
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">
+            Hey, {user?.name?.split(" ")[0] || user?.github_username} 👋
+          </h1>
+          <p className="text-gray-500 text-sm">
+            {portfolio
+              ? "Your portfolio is live. Rebuild anytime."
+              : "Let's build your portfolio in the next 2 minutes."}
+          </p>
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-8">
+          {/* LEFT — Config */}
+          <div className="lg:col-span-2 space-y-6">
+
+            {/* Theme picker */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-6">
+              <h2 className="font-semibold text-gray-900 mb-4">Choose a theme</h2>
+              <div className="grid grid-cols-3 gap-3">
+                {THEMES.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setSelectedTheme(t.id)}
+                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                      selectedTheme === t.id
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-100 hover:border-gray-200"
+                    }`}
+                  >
+                    <p className="font-medium text-sm text-gray-900">{t.label}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{t.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Resume upload */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-6">
+              <h2 className="font-semibold text-gray-900 mb-1">Upload resume</h2>
+              <p className="text-xs text-gray-400 mb-4">PDF, JSON, or TXT · Helps AI write a better bio</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.json,.txt"
+                className="hidden"
+                onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-500 hover:border-blue-300 hover:text-blue-600 transition-all w-full justify-center"
+              >
+                <FileText size={16} />
+                {resumeFile ? resumeFile.name : "Click to upload resume"}
+              </button>
+            </div>
+
+            {/* Repo selection */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-6">
+              <h2 className="font-semibold text-gray-900 mb-1">Pin specific repos</h2>
+              <p className="text-xs text-gray-400 mb-4">Optional — AI picks the best ones by default</p>
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {repos.map((repo) => (
+                  <label
+                    key={repo.full_name}
+                    className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedRepos.includes(repo.full_name)}
+                      onChange={() => toggleRepo(repo.full_name)}
+                      className="rounded accent-blue-600"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{repo.name}</p>
+                      {repo.description && (
+                        <p className="text-xs text-gray-400 truncate">{repo.description}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {repo.language && (
+                        <span className="text-xs text-gray-400">{repo.language}</span>
+                      )}
+                      {repo.stars > 0 && (
+                        <span className="text-xs text-yellow-500">★ {repo.stars}</span>
+                      )}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Build button */}
+            <button
+              onClick={triggerBuild}
+              disabled={isBuilding}
+              className="w-full flex items-center justify-center gap-2.5 bg-gray-900 text-white font-semibold py-4 rounded-xl hover:bg-gray-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:-translate-y-0.5 active:translate-y-0"
+            >
+              {isBuilding ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Building your portfolio…
+                </>
+              ) : portfolio ? (
+                <>
+                  <RefreshCw size={18} />
+                  Rebuild portfolio
+                </>
+              ) : (
+                <>
+                  <Zap size={18} />
+                  Build my portfolio
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* RIGHT — Status + Live site */}
+          <div className="space-y-6">
+            {/* Build progress */}
+            {(isBuilding || buildStatus === "completed" || buildStatus === "failed") && (
+              <div className="bg-white rounded-2xl border border-gray-100 p-6">
+                <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  {isBuilding && <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse" />}
+                  {buildStatus === "completed" && <CheckCircle size={16} className="text-green-500" />}
+                  {buildStatus === "failed" && <AlertCircle size={16} className="text-red-500" />}
+                  Build progress
+                </h2>
+                <div className="space-y-1.5">
+                  {buildSteps.map((step, i) => (
+                    <div key={i} className="progress-step done">
+                      <CheckCircle size={14} className="flex-shrink-0" />
+                      {step}
+                    </div>
+                  ))}
+                  {isBuilding && (
+                    <div className="progress-step active">
+                      <div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                      Working…
+                    </div>
+                  )}
+                  {buildError && (
+                    <div className="progress-step" style={{ background: "#fef2f2", color: "#dc2626" }}>
+                      <AlertCircle size={14} />
+                      {buildError}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Live portfolio card */}
+            {(siteUrl || portfolio?.site_url) && (
+              <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                  <p className="text-sm font-medium text-blue-100">Live</p>
+                </div>
+                <p className="font-semibold text-lg mb-4 break-all">
+                  {(siteUrl || portfolio?.site_url)?.replace("https://", "")}
+                </p>
+                <a
+                  href={siteUrl || portfolio?.site_url || "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 bg-white/20 hover:bg-white/30 transition-colors text-white text-sm font-medium px-4 py-2 rounded-lg w-fit"
+                >
+                  <ExternalLink size={14} />
+                  View portfolio
+                </a>
+              </div>
+            )}
+
+            {/* Webhook setup info */}
+            {user && (
+              <div className="bg-white rounded-2xl border border-gray-100 p-6">
+                <h2 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                  <Github size={15} />
+                  Auto-update webhook
+                </h2>
+                <p className="text-xs text-gray-500 mb-3">
+                  Add this URL to your GitHub repo webhooks to enable auto-rebuild on push.
+                </p>
+                <code className="block text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 break-all text-gray-700 select-all">
+                  {API}/api/webhooks/github/{user.id}
+                </code>
+                <p className="text-xs text-gray-400 mt-2">
+                  Settings → Webhooks → Add webhook · Content type: application/json
+                </p>
+              </div>
+            )}
+
+            {/* Stats */}
+            {portfolio?.portfolio_data && (
+              <div className="bg-white rounded-2xl border border-gray-100 p-6">
+                <h2 className="font-semibold text-gray-900 mb-4">Portfolio stats</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <p className="text-2xl font-bold text-gray-900">
+                      {(portfolio.portfolio_data as any).projects_count || 0}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">Projects</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <p className="text-2xl font-bold text-gray-900">
+                      {((portfolio.portfolio_data as any).skills?.languages?.length || 0) +
+                        ((portfolio.portfolio_data as any).skills?.frameworks?.length || 0)}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">Skills</p>
+                  </div>
+                </div>
+                {portfolio.last_built_at && (
+                  <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
+                    <Clock size={11} />
+                    Last built {new Date(portfolio.last_built_at).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
