@@ -19,7 +19,7 @@ export default function PricingPage() {
       router.push("/");
       return;
     }
-    router.push("/checkout");
+    router.push("/checkout?tier=pro");
   };
 
   return (

@@ -80,10 +80,8 @@ const PLANS = [
 export default function HomePage() {
   const router = useRouter();
 
-  const handleGitHubLogin = () => {
-    // Redirect to backend OAuth handler which will handle the full flow
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    window.location.href = `${API_URL}/api/auth/github`;
+  const handleGetStarted = () => {
+    router.push("/auth");
   };
 
   return (
@@ -102,11 +100,10 @@ export default function HomePage() {
               Pricing
             </a>
             <button
-              onClick={handleGitHubLogin}
+              onClick={handleGetStarted}
               className="flex items-center gap-2 bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
             >
-              <Github size={15} />
-              Connect GitHub
+              Get Started Free
             </button>
           </div>
         </div>
@@ -130,11 +127,10 @@ export default function HomePage() {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
-              onClick={handleGitHubLogin}
+              onClick={handleGetStarted}
               className="flex items-center justify-center gap-2 bg-gray-900 text-white font-semibold px-6 py-3.5 rounded-xl hover:bg-gray-700 transition-all hover:-translate-y-0.5"
             >
-              <Github size={18} />
-              Build my portfolio free
+              Get Started Free
             </button>
             <a
               href="#features"
@@ -232,7 +228,7 @@ export default function HomePage() {
                   ))}
                 </ul>
                 <button
-                  onClick={() => plan.href === "/pricing" ? router.push("/pricing") : handleGitHubLogin()}
+                  onClick={() => plan.href === "/pricing" ? router.push("/pricing") : handleGetStarted()}
                   className={`w-full text-center py-3 rounded-xl font-semibold text-sm transition-all ${
                     plan.accent
                       ? "bg-blue-600 text-white hover:bg-blue-500"
@@ -255,11 +251,10 @@ export default function HomePage() {
             Join developers who let AI do the portfolio work so they can focus on building.
           </p>
           <button
-            onClick={handleGitHubLogin}
+            onClick={handleGetStarted}
             className="inline-flex items-center gap-2 bg-white text-gray-900 font-semibold px-8 py-4 rounded-xl hover:bg-gray-100 transition-all hover:-translate-y-0.5"
           >
-            <Github size={18} />
-            Build my portfolio free
+            Get Started Free
           </button>
         </div>
       </section>
