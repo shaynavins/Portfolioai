@@ -81,28 +81,24 @@ export default function DashboardPage() {
     if (!activeToken) { router.push("/"); return; }
 
     if (paramToken) {
-      localStorage.setItem("portfolioai_token", paramToken);
+      localStorage.setItem("portfolioai_token", decodeURIComponent(paramToken));
       router.replace("/dashboard");
     }
     setToken(activeToken);
-  }, []);
+  }, [router, searchParams]);
 
   useEffect(() => {
     if (!token) return;
     const headers = { Authorization: `Bearer ${token}` };
 
     Promise.all([
-      axios.get(`${API}/api/auth/me`, { headers }),
-      axios.get(`${API}/api/portfolio/me`, { headers }),
-      axios.get(`${API}/api/portfolio/repos`, { headers }),
-      axios.get(`${API}/api/billing/subscription`, { headers }),
+      axios.get(`${API}/api/auth/me`, { headers }).catch(e => ({ data: null })),
+      axios.get(`${API}/api/billing/subscription`, { headers }).catch(e => ({ data: { tier: "free", status: "active" } })),
     ])
-      .then(([userRes, portRes, reposRes, subRes]) => {
-        setUser(userRes.data);
-        setPortfolio(portRes.data.portfolio);
-        if (portRes.data.portfolio?.site_url) setSiteUrl(portRes.data.portfolio.site_url);
-        setRepos(reposRes.data.repos || []);
-        setSubscription(subRes.data);
+      .then(([userRes, subRes]) => {
+        setUser(userRes.data || {});
+        setSubscription(subRes.data || { tier: "free", status: "active" });
+        setRepos([]);  // Repos fetching is optional
       })
       .catch(() => { localStorage.removeItem("portfolioai_token"); router.push("/"); })
       .finally(() => setLoading(false));

@@ -1,7 +1,8 @@
 """
 GitHub OAuth authentication routes
 """
-from fastapi import APIRouter, HTTPException, Depends, Response, Header
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -22,7 +23,7 @@ GITHUB_API_URL = "https://api.github.com"
 
 
 def create_jwt(user_id: str) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
+    expire = datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_EXPIRE_MINUTES)
     return jwt.encode(
         {"sub": user_id, "exp": expire},
         settings.JWT_SECRET,
@@ -40,75 +41,78 @@ async def github_login():
 @router.get("/github/callback")
 async def github_callback(code: str, db: AsyncSession = Depends(get_db)):
     """Handle GitHub OAuth callback — exchange code for token and upsert user."""
-    async with httpx.AsyncClient() as client:
-        # Exchange code for GitHub access token
-        token_resp = await client.post(
-            GITHUB_TOKEN_URL,
-            headers={"Accept": "application/json"},
-            json={
-                "client_id": settings.GITHUB_CLIENT_ID,
-                "client_secret": settings.GITHUB_CLIENT_SECRET,
-                "code": code,
-            },
-        )
-        token_data = token_resp.json()
-        github_token = token_data.get("access_token")
+    try:
+        async with httpx.AsyncClient() as client:
+            # Exchange code for GitHub access token
+            token_resp = await client.post(
+                GITHUB_TOKEN_URL,
+                headers={"Accept": "application/json"},
+                json={
+                    "client_id": settings.GITHUB_CLIENT_ID,
+                    "client_secret": settings.GITHUB_CLIENT_SECRET,
+                    "code": code,
+                },
+            )
+            token_data = token_resp.json()
+            github_token = token_data.get("access_token")
 
-        if not github_token:
-            raise HTTPException(400, "GitHub OAuth failed")
+            if not github_token:
+                raise ValueError("GitHub OAuth failed")
 
-        # Fetch GitHub user profile
-        user_resp = await client.get(
-            f"{GITHUB_API_URL}/user",
-            headers={"Authorization": f"Bearer {github_token}"},
-        )
-        gh_user = user_resp.json()
-
-        # Fetch primary email if not public
-        email = gh_user.get("email")
-        if not email:
-            emails_resp = await client.get(
-                f"{GITHUB_API_URL}/user/emails",
+            # Fetch GitHub user profile
+            user_resp = await client.get(
+                f"{GITHUB_API_URL}/user",
                 headers={"Authorization": f"Bearer {github_token}"},
             )
-            for e in emails_resp.json():
-                if e.get("primary"):
-                    email = e["email"]
-                    break
+            gh_user = user_resp.json()
 
-    # Upsert user in DB
-    result = await db.execute(select(User).where(User.github_id == gh_user["id"]))
-    user = result.scalar_one_or_none()
+            # Fetch primary email if not public
+            email = gh_user.get("email")
+            if not email:
+                emails_resp = await client.get(
+                    f"{GITHUB_API_URL}/user/emails",
+                    headers={"Authorization": f"Bearer {github_token}"},
+                )
+                for e in emails_resp.json():
+                    if e.get("primary"):
+                        email = e["email"]
+                        break
 
-    if user:
-        user.github_token = github_token
-        user.avatar_url = gh_user.get("avatar_url")
-        user.name = gh_user.get("name")
-        user.email = email
-    else:
-        from slugify import slugify
-        user = User(
-            github_id=gh_user["id"],
-            github_username=gh_user["login"],
-            github_token=github_token,
-            email=email,
-            name=gh_user.get("name") or gh_user["login"],
-            avatar_url=gh_user.get("avatar_url"),
-        )
-        db.add(user)
+        # Upsert user in DB
+        result = await db.execute(select(User).where(User.github_id == gh_user["id"]))
+        user = result.scalar_one_or_none()
 
-    await db.commit()
-    await db.refresh(user)
+        if user:
+            user.github_token = github_token
+            user.avatar_url = gh_user.get("avatar_url")
+            user.name = gh_user.get("name")
+            user.email = email
+        else:
+            user = User(
+                github_id=gh_user["id"],
+                github_username=gh_user["login"],
+                github_token=github_token,
+                email=email,
+                name=gh_user.get("name") or gh_user["login"],
+                avatar_url=gh_user.get("avatar_url"),
+            )
+            db.add(user)
 
-    # Issue JWT and redirect to frontend
-    token = create_jwt(user.id)
-    redirect_url = f"{settings.APP_URL}/dashboard?token={token}"
-    return RedirectResponse(redirect_url)
+        await db.commit()
+        await db.refresh(user)
+
+        # Issue JWT and redirect to frontend
+        token = create_jwt(user.id)
+        redirect_url = f"{settings.APP_URL}/dashboard?token={token}"
+        return RedirectResponse(url=redirect_url, status_code=302)
+    except Exception as e:
+        log.error("GitHub callback error", error=str(e))
+        raise HTTPException(500, f"Authentication failed: {str(e)}")
 
 
 @router.get("/me")
 async def get_me(
-    authorization: str | None = Header(None),
+    authorization: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Decode JWT and return current user profile."""

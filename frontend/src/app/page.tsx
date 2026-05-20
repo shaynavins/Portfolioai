@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Github, Zap, RefreshCw, Globe, ArrowRight, Star, Check } from "lucide-react";
 
 const FEATURES = [
@@ -77,6 +78,14 @@ const PLANS = [
 ];
 
 export default function HomePage() {
+  const router = useRouter();
+
+  const handleGitHubLogin = () => {
+    // Redirect to backend OAuth handler which will handle the full flow
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    window.location.href = `${API_URL}/api/auth/github`;
+  };
+
   return (
     <div className="min-h-screen bg-white font-sans">
       {/* Nav */}
@@ -92,13 +101,13 @@ export default function HomePage() {
             <a href="#pricing" className="text-sm text-gray-500 hover:text-gray-900 transition-colors hidden sm:block">
               Pricing
             </a>
-            <a
-              href="/api/auth/github"
+            <button
+              onClick={handleGitHubLogin}
               className="flex items-center gap-2 bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
             >
               <Github size={15} />
               Connect GitHub
-            </a>
+            </button>
           </div>
         </div>
       </nav>
@@ -120,13 +129,13 @@ export default function HomePage() {
             writes your bio, and keeps it updated automatically.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <a
-              href="/api/auth/github"
+            <button
+              onClick={handleGitHubLogin}
               className="flex items-center justify-center gap-2 bg-gray-900 text-white font-semibold px-6 py-3.5 rounded-xl hover:bg-gray-700 transition-all hover:-translate-y-0.5"
             >
               <Github size={18} />
               Build my portfolio free
-            </a>
+            </button>
             <a
               href="#features"
               className="flex items-center justify-center gap-2 border border-gray-200 text-gray-700 font-medium px-6 py-3.5 rounded-xl hover:bg-gray-50 transition-colors"
@@ -222,8 +231,8 @@ export default function HomePage() {
                     </li>
                   ))}
                 </ul>
-                <a
-                  href={plan.href}
+                <button
+                  onClick={() => plan.href === "/pricing" ? router.push("/pricing") : handleGitHubLogin()}
                   className={`w-full text-center py-3 rounded-xl font-semibold text-sm transition-all ${
                     plan.accent
                       ? "bg-blue-600 text-white hover:bg-blue-500"
@@ -231,7 +240,7 @@ export default function HomePage() {
                   }`}
                 >
                   {plan.cta}
-                </a>
+                </button>
               </div>
             ))}
           </div>
@@ -245,13 +254,13 @@ export default function HomePage() {
           <p className="text-gray-400 mb-8">
             Join developers who let AI do the portfolio work so they can focus on building.
           </p>
-          <a
-            href="/api/auth/github"
+          <button
+            onClick={handleGitHubLogin}
             className="inline-flex items-center gap-2 bg-white text-gray-900 font-semibold px-8 py-4 rounded-xl hover:bg-gray-100 transition-all hover:-translate-y-0.5"
           >
             <Github size={18} />
             Build my portfolio free
-          </a>
+          </button>
         </div>
       </section>
 

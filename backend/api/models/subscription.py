@@ -71,7 +71,7 @@ class Subscription(Base):
     canceled_at = Column(DateTime(timezone=True), nullable=True)
     
     # Metadata
-    metadata = Column(JSON, default=dict)  # Custom data from Razorpay
+    custom_metadata = Column(JSON, default=dict)  # Custom data from Razorpay
     
     # Tracking
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -123,7 +123,7 @@ class Invoice(Base):
     
     # Metadata
     description = Column(String, nullable=True)
-    metadata = Column(JSON, default=dict)
+    custom_metadata = Column(JSON, default=dict)
     
     # Tracking
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -159,7 +159,7 @@ class PaymentMethod(Base):
     is_expired = Column(Boolean, default=False)
     
     # Metadata
-    metadata = Column(JSON, default=dict)
+    custom_metadata = Column(JSON, default=dict)
     
     # Tracking
     created_at = Column(DateTime(timezone=True), server_default=func.now())
