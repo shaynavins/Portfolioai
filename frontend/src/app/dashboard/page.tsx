@@ -14,6 +14,7 @@ type BuildStatus = "idle" | "pending" | "running" | "completed" | "failed";
 
 interface User {
   id: string;
+  github_id: number | null;
   github_username: string;
   name: string;
   avatar_url: string;
@@ -229,7 +230,7 @@ export default function DashboardPage() {
         </div>
 
         {/* GitHub Connection Status */}
-        {!user?.github_username?.startsWith("user") && !user?.github_username && (
+        {user && !user.github_id && (
           <div className="mb-8 bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-start gap-3">
             <Github size={20} className="text-blue-600 mt-0.5 flex-shrink-0" />
             <div className="flex-1 min-w-0">
@@ -238,7 +239,7 @@ export default function DashboardPage() {
                 Link your GitHub account to fetch your repos and build an amazing portfolio automatically.
               </p>
               <a
-                href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=user:email,read:user&redirect_uri=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL}/auth/github/callback`)}`}
+                href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=user:email,read:user&redirect_uri=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback`)}`}
                 className="inline-flex items-center gap-2 mt-3 bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm"
               >
                 <Github size={16} />
