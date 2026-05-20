@@ -106,6 +106,91 @@ async def get_current_user(
     return user
 
 
+@router.get("/github/callback")
+async def github_oauth_callback(
+    code: str,
+    state: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """GitHub OAuth callback - exchange code for token and create/update user."""
+    import httpx
+    
+    if not code:
+        raise HTTPException(400, "Missing authorization code from GitHub")
+    
+    # Exchange code for access token
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(
+            "https://github.com/login/oauth/access_token",
+            json={
+                "client_id": settings.GITHUB_CLIENT_ID,
+                "client_secret": settings.GITHUB_CLIENT_SECRET,
+                "code": code,
+            },
+            headers={"Accept": "application/json"},
+        )
+        
+        if token_resp.status_code != 200:
+            raise HTTPException(400, "Failed to exchange code for token")
+        
+        token_data = token_resp.json()
+        if "error" in token_data:
+            raise HTTPException(400, f"GitHub error: {token_data.get('error_description')}")
+        
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise HTTPException(400, "No access token received from GitHub")
+        
+        # Get user info from GitHub
+        user_resp = await client.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        
+        if user_resp.status_code != 200:
+            raise HTTPException(400, "Failed to fetch GitHub user info")
+        
+        github_user = user_resp.json()
+    
+    github_id = github_user["id"]
+    github_username = github_user["login"]
+    github_email = github_user.get("email")
+    
+    # Check if user already exists with this GitHub ID
+    result = await db.execute(select(User).where(User.github_id == github_id))
+    user = result.scalar_one_or_none()
+    
+    if user:
+        # Update existing user with latest GitHub info
+        user.github_token = access_token
+        user.avatar_url = github_user.get("avatar_url")
+    else:
+        # Create new user
+        user = User(
+            id=str(uuid.uuid4()),
+            github_id=github_id,
+            github_username=github_username,
+            github_token=access_token,
+            email=github_email or f"{github_username}@github.local",
+            name=github_user.get("name") or github_username,
+            avatar_url=github_user.get("avatar_url"),
+        )
+        db.add(user)
+    
+    await db.commit()
+    await db.refresh(user)
+    
+    # Create JWT token
+    token = create_jwt(user.id)
+    
+    # Redirect to dashboard with token
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "redirect_to": f"{settings.APP_URL}/dashboard?token={token}",
+    }
+
+
 @router.post("/github/connect")
 async def connect_github(
     req: GitHubOAuthRequest,
