@@ -3,8 +3,8 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  Github, Upload, RefreshCw, ExternalLink, CheckCircle,
-  Clock, AlertCircle, Zap, Settings, LogOut, FileText,
+  Github, RefreshCw, ExternalLink, CheckCircle,
+  Clock, AlertCircle, Zap, LogOut, FileText,
 } from "lucide-react";
 import axios from "axios";
 
@@ -36,6 +36,14 @@ interface Repo {
   stars: number;
 }
 
+interface Subscription {
+  tier: string;
+  status: string | null;
+  renewal_date: string | null;
+  next_invoice_date: string | null;
+  cancel_at_period_end?: boolean;
+}
+
 const THEMES = [
   { id: "minimal", label: "Minimal", desc: "Clean & professional" },
   { id: "dark", label: "Dark", desc: "Dark mode first" },
@@ -50,6 +58,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [selectedRepos, setSelectedRepos] = useState<string[]>([]);
   const [selectedTheme, setSelectedTheme] = useState("minimal");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -59,11 +68,11 @@ export default function DashboardPage() {
   const [buildError, setBuildError] = useState<string | null>(null);
   const [siteUrl, setSiteUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  // ── Auth & initial data ───────────────────────────────────────────────────
   useEffect(() => {
     const paramToken = searchParams.get("token");
     const stored = localStorage.getItem("portfolioai_token");
@@ -86,18 +95,19 @@ export default function DashboardPage() {
       axios.get(`${API}/api/auth/me`, { headers }),
       axios.get(`${API}/api/portfolio/me`, { headers }),
       axios.get(`${API}/api/portfolio/repos`, { headers }),
+      axios.get(`${API}/api/billing/subscription`, { headers }),
     ])
-      .then(([userRes, portRes, reposRes]) => {
+      .then(([userRes, portRes, reposRes, subRes]) => {
         setUser(userRes.data);
         setPortfolio(portRes.data.portfolio);
         if (portRes.data.portfolio?.site_url) setSiteUrl(portRes.data.portfolio.site_url);
         setRepos(reposRes.data.repos || []);
+        setSubscription(subRes.data);
       })
       .catch(() => { localStorage.removeItem("portfolioai_token"); router.push("/"); })
       .finally(() => setLoading(false));
   }, [token]);
 
-  // ── Build trigger ─────────────────────────────────────────────────────────
   const triggerBuild = async () => {
     if (!token) return;
     setBuildStatus("pending");
@@ -107,8 +117,9 @@ export default function DashboardPage() {
 
     const formData = new FormData();
     formData.append("theme", selectedTheme);
-    if (selectedRepos.length > 0)
+    if (selectedRepos.length > 0) {
       formData.append("selected_repos", JSON.stringify(selectedRepos));
+    }
     if (resumeFile) formData.append("resume", resumeFile);
 
     try {
@@ -118,13 +129,12 @@ export default function DashboardPage() {
       const newJobId = res.data.job_id;
       setJobId(newJobId);
       startSSEStream(newJobId);
-    } catch (err) {
+    } catch (err: any) {
       setBuildStatus("failed");
-      setBuildError("Failed to start build. Please try again.");
+      setBuildError(err?.response?.data?.detail || "Failed to start build. Please try again.");
     }
   };
 
-  // ── SSE Progress Stream ───────────────────────────────────────────────────
   const startSSEStream = (id: string) => {
     if (eventSourceRef.current) eventSourceRef.current.close();
 
@@ -153,6 +163,24 @@ export default function DashboardPage() {
     );
   };
 
+  const handleCancelSubscription = async () => {
+    if (!token) return;
+    try {
+      await axios.post(
+        `${API}/api/billing/cancel?at_period_end=true`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const res = await axios.get(`${API}/api/billing/subscription`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSubscription(res.data);
+      setShowCancelConfirm(false);
+    } catch {
+      window.alert("Failed to cancel subscription. Please try again.");
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem("portfolioai_token");
     router.push("/");
@@ -173,7 +201,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Top bar */}
       <header className="bg-white border-b border-gray-100 sticky top-0 z-40">
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center justify-between">
           <span className="font-bold text-gray-900">
@@ -181,7 +208,7 @@ export default function DashboardPage() {
           </span>
           <div className="flex items-center gap-4">
             <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium capitalize">
-              {user?.plan} plan
+              {subscription?.tier || user?.plan} plan
             </span>
             {user?.avatar_url && (
               <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full" />
@@ -194,7 +221,6 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-10">
-        {/* Welcome */}
         <div className="mb-10">
           <h1 className="text-2xl font-bold text-gray-900 mb-1">
             Hey, {user?.name?.split(" ")[0] || user?.github_username} 👋
@@ -207,10 +233,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8">
-          {/* LEFT — Config */}
           <div className="lg:col-span-2 space-y-6">
-
-            {/* Theme picker */}
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
               <h2 className="font-semibold text-gray-900 mb-4">Choose a theme</h2>
               <div className="grid grid-cols-3 gap-3">
@@ -231,7 +254,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Resume upload */}
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
               <h2 className="font-semibold text-gray-900 mb-1">Upload resume</h2>
               <p className="text-xs text-gray-400 mb-4">PDF, JSON, or TXT · Helps AI write a better bio</p>
@@ -251,7 +273,6 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {/* Repo selection */}
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
               <h2 className="font-semibold text-gray-900 mb-1">Pin specific repos</h2>
               <p className="text-xs text-gray-400 mb-4">Optional — AI picks the best ones by default</p>
@@ -286,7 +307,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Build button */}
             <button
               onClick={triggerBuild}
               disabled={isBuilding}
@@ -311,9 +331,7 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          {/* RIGHT — Status + Live site */}
           <div className="space-y-6">
-            {/* Build progress */}
             {(isBuilding || buildStatus === "completed" || buildStatus === "failed") && (
               <div className="bg-white rounded-2xl border border-gray-100 p-6">
                 <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -345,7 +363,6 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Live portfolio card */}
             {(siteUrl || portfolio?.site_url) && (
               <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
                 <div className="flex items-center gap-2 mb-1">
@@ -367,7 +384,63 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Webhook setup info */}
+            {subscription && (
+              <div className={`rounded-2xl border p-6 ${
+                subscription.tier === "free"
+                  ? "bg-white border-gray-100"
+                  : subscription.cancel_at_period_end
+                  ? "bg-orange-50 border-orange-200"
+                  : "bg-blue-50 border-blue-200"
+              }`}>
+                <h2 className="font-semibold text-gray-900 mb-3">Billing</h2>
+                <p className="text-sm text-gray-600 mb-2">
+                  Current plan: <span className="font-semibold capitalize">{subscription.tier}</span>
+                </p>
+                <p className="text-sm text-gray-600 mb-4">
+                  Status: <span className="font-medium capitalize">{subscription.status || "free"}</span>
+                </p>
+                {subscription.renewal_date && (
+                  <p className="text-sm text-gray-600 mb-4">
+                    Renews on {new Date(subscription.renewal_date).toLocaleDateString()}
+                  </p>
+                )}
+                {subscription.cancel_at_period_end && (
+                  <div className="rounded-lg bg-orange-100 px-3 py-2 text-xs text-orange-700 mb-4">
+                    Subscription will cancel at the end of the current billing period.
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {subscription.tier === "free" ? (
+                    <button
+                      onClick={() => router.push("/pricing")}
+                      className="w-full bg-blue-600 text-white font-semibold py-2 rounded-lg hover:bg-blue-500 transition-colors text-sm"
+                    >
+                      Upgrade plan
+                    </button>
+                  ) : (
+                    <>
+                      {!subscription.cancel_at_period_end && (
+                        <button
+                          onClick={() => router.push("/pricing")}
+                          className="w-full bg-gray-900 text-white font-semibold py-2 rounded-lg hover:bg-gray-700 transition-colors text-sm"
+                        >
+                          Change plan
+                        </button>
+                      )}
+                      {!subscription.cancel_at_period_end && (
+                        <button
+                          onClick={() => setShowCancelConfirm(true)}
+                          className="w-full border border-gray-300 text-gray-700 font-semibold py-2 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                        >
+                          Cancel subscription
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
             {user && (
               <div className="bg-white rounded-2xl border border-gray-100 p-6">
                 <h2 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
@@ -386,7 +459,6 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Stats */}
             {portfolio?.portfolio_data && (
               <div className="bg-white rounded-2xl border border-gray-100 p-6">
                 <h2 className="font-semibold text-gray-900 mb-4">Portfolio stats</h2>
@@ -416,6 +488,31 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      {showCancelConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full">
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Cancel subscription?</h3>
+            <p className="text-gray-600 mb-4 text-sm">
+              Your access will continue until the end of your billing period. You can resubscribe anytime.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCancelConfirm(false)}
+                className="flex-1 border border-gray-300 text-gray-700 font-semibold py-2 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+              >
+                Keep subscription
+              </button>
+              <button
+                onClick={handleCancelSubscription}
+                className="flex-1 bg-red-600 text-white font-semibold py-2 rounded-lg hover:bg-red-500 transition-colors text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

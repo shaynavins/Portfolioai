@@ -55,7 +55,7 @@ const PLANS = [
       "Analytics dashboard",
     ],
     cta: "Start Pro",
-    href: "/api/auth/github?plan=pro",
+    href: "/pricing",
     accent: true,
   },
   {
@@ -70,8 +70,8 @@ const PLANS = [
       "API access",
       "Priority support",
     ],
-    cta: "Contact us",
-    href: "mailto:hello@portfolioai.app",
+    cta: "View Team",
+    href: "/pricing",
     accent: false,
   },
 ];

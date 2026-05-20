@@ -60,6 +60,7 @@ class User(Base):
 
     portfolios = relationship("Portfolio", back_populates="user")
     jobs = relationship("BuildJob", back_populates="user")
+    subscription = relationship("Subscription", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
 class Portfolio(Base):

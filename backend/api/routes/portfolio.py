@@ -13,9 +13,52 @@ import structlog
 from api.database import get_db, User, Portfolio, BuildJob, JobStatus
 from api.config import settings
 from api.worker import run_portfolio_build
+from api.models.subscription import Subscription
+from sqlalchemy import func
+from datetime import datetime, timedelta
 
 router = APIRouter()
 log = structlog.get_logger()
+
+# Build limits per tier (per month)
+BUILD_LIMITS = {
+    "free": 3,
+    "pro": 50,
+    "team": None,  # Unlimited
+}
+
+
+async def check_build_limit(user: User, db: AsyncSession) -> bool:
+    """
+    Check if user has reached their monthly build limit.
+    Returns True if they can build, False if limit reached.
+    """
+    # Get user's subscription tier
+    result = await db.execute(
+        select(Subscription).where(Subscription.user_id == user.id)
+    )
+    subscription = result.scalar_one_or_none()
+    tier = subscription.tier if subscription else "free"
+    limit = BUILD_LIMITS.get(tier, BUILD_LIMITS["free"])
+    
+    # Unlimited tier
+    if limit is None:
+        return True
+    
+    # Count builds this month
+    now = datetime.utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    count_result = await db.execute(
+        select(func.count(BuildJob.id)).where(
+            BuildJob.user_id == user.id,
+            BuildJob.created_at >= month_start,
+            BuildJob.status != JobStatus.FAILED,  # Don't count failed builds
+        )
+    )
+    build_count = count_result.scalar() or 0
+    
+    return build_count < limit
 
 
 async def get_current_user(
@@ -47,6 +90,22 @@ async def trigger_build(
     db: AsyncSession = Depends(get_db),
 ):
     """Trigger a new portfolio build job."""
+    # Check build limit
+    can_build = await check_build_limit(user, db)
+    if not can_build:
+        # Get subscription to return accurate limit info
+        result = await db.execute(
+            select(Subscription).where(Subscription.user_id == user.id)
+        )
+        subscription = result.scalar_one_or_none()
+        tier = subscription.tier if subscription else "free"
+        limit = BUILD_LIMITS.get(tier, BUILD_LIMITS["free"])
+        
+        raise HTTPException(
+            429,
+            f"Build limit reached for {tier} plan ({limit} per month). Upgrade your plan to build more portfolios."
+        )
+    
     parsed_selected_repos = None
     if selected_repos:
         try:
