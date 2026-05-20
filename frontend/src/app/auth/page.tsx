@@ -147,7 +147,7 @@ export default function AuthPage() {
 
           {/* GitHub OAuth (secondary) */}
           <a
-            href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=user:email,read:user&redirect_uri=${encodeURIComponent(`${process.env.NEXT_PUBLIC_APP_URL}/auth/github/callback`)}`}
+            href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=user:email,read:user&redirect_uri=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL}/auth/github/callback`)}`}
             className="w-full flex items-center justify-center gap-2 bg-gray-900 text-white font-semibold py-3 rounded-lg hover:bg-gray-800 transition-all"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">

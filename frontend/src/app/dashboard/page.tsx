@@ -238,7 +238,7 @@ export default function DashboardPage() {
                 Link your GitHub account to fetch your repos and build an amazing portfolio automatically.
               </p>
               <a
-                href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=user:email,read:user&redirect_uri=${encodeURIComponent(`${process.env.NEXT_PUBLIC_APP_URL}/auth/github/callback`)}`}
+                href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=user:email,read:user&redirect_uri=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL}/auth/github/callback`)}`}
                 className="inline-flex items-center gap-2 mt-3 bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm"
               >
                 <Github size={16} />
