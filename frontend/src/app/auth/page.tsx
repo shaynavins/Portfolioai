@@ -22,7 +22,7 @@ export default function AuthPage() {
 
     try {
       const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const endpoint = isLogin ? "/signup" : "/signup";
+      const endpoint = isLogin ? "/login" : "/signup";
       const payload = isLogin
         ? { email: formData.email, password: formData.password }
         : { email: formData.email, password: formData.password, name: formData.name };
