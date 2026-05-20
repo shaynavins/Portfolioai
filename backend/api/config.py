@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     APP_URL: str = "http://localhost:3000"
     API_URL: str = "http://localhost:8000"
     PORTFOLIO_BASE_DOMAIN: str = "portfolioai.app"
-    DEBUG: bool = False
+    DEBUG: bool = True
 
     # ─── Security & Secrets ────────────────────────────────────────────────────
     JWT_SECRET: str  # Required in production
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     
     # HTTPS enforcement
     REQUIRE_HTTPS: bool = True
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
+    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000", "http://127.0.0.1:3000"]
     
     # Rate limiting
     RATE_LIMIT_ENABLED: bool = True

@@ -48,9 +48,9 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    github_id = Column(Integer, unique=True, nullable=False, index=True)
-    github_username = Column(String, nullable=False)
-    github_token = Column(Text, nullable=False)       # encrypted in prod
+    github_id = Column(Integer, unique=True, nullable=True, index=True)
+    github_username = Column(String, nullable=True)
+    github_token = Column(Text, nullable=True)       # encrypted in prod
     email = Column(String)
     name = Column(String)
     avatar_url = Column(String)

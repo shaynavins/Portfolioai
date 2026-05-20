@@ -55,10 +55,12 @@ app = FastAPI(
     redoc_url="/api/redoc" if settings.DEBUG else None,
 )
 
-# Setup security middleware
+# Setup security middleware (MUST be before routes)
 setup_cors(app)
-setup_trusted_hosts(app)
 add_security_headers(app)
+# Don't setup trusted hosts in development
+if not settings.DEBUG:
+    setup_trusted_hosts(app)
 
 
 # Global exception handler for validation errors
