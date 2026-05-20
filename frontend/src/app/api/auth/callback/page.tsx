@@ -37,10 +37,11 @@ export default function GitHubCallbackPage() {
 
         const data = await res.json();
         localStorage.setItem("portfolioai_token", data.access_token);
-        router.push("/dashboard");
+        // Use the redirect_to URL from the backend response
+        window.location.href = data.redirect_to || "/dashboard";
       } catch (err) {
         console.error("Error exchanging code:", err);
-        router.push(`/auth?error=${encodeURIComponent(err instanceof Error ? err.message : "Unknown error")}`);
+        window.location.href = `/auth?error=${encodeURIComponent(err instanceof Error ? err.message : "Unknown error")}`;
       }
     };
 
