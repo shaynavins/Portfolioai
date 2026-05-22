@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
+  "account_id": "e2c05949f98beae451061409dd614295",
   "main": ".open-next/worker.js",
   "name": "portfolioai-frontend",
   "compatibility_date": "2026-05-22",
