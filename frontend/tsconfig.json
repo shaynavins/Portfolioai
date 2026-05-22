@@ -6,6 +6,7 @@
       "esnext"
     ],
     "allowJs": true,
+    "baseUrl": ".",
     "skipLibCheck": true,
     "strict": false,
     "noEmit": true,
@@ -20,7 +21,12 @@
       {
         "name": "next"
       }
-    ]
+    ],
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
   },
   "include": [
     "next-env.d.ts",

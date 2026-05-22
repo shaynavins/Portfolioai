@@ -6,7 +6,7 @@
 
 1. User signs in via GitHub OAuth
 2. LangGraph agent analyzes repos, scores them, writes bios and project descriptions
-3. Portfolio site is generated and deployed to Vercel Pages
+3. Portfolio site is generated and published through the backend deployment layer
 4. A GitHub webhook triggers automatic re-generation on every push
 
 ## Tech Stack
@@ -14,21 +14,22 @@
 | Layer | Technology |
 |---|---|
 | Agent Orchestration | LangGraph (Python) |
-| LLM | OpenAI GPT-4.1 mini |
+| LLM | Gemini (`langchain-google-genai`) |
 | GitHub Integration | GitHub OAuth App + REST/GraphQL API via MCP |
 | Backend API | FastAPI + Celery workers |
 | Frontend | Next.js 14 + Tailwind CSS |
 | Database | PostgreSQL (Supabase free tier) |
 | Queue | Redis (Upstash free tier) |
 | Storage | Cloudflare R2 (free tier) |
-| Hosting | Vercel (portfolio pages) |
+| Hosting | Next.js frontend + FastAPI backend |
 | Deployment | Railway (backend) |
+| Payments | Razorpay |
 
 ## Quick Start
 
 ### 1. Prerequisites
 ```bash
-node >= 18
+node >= 18.17
 python >= 3.11
 docker (for local postgres/redis)
 ```
@@ -49,7 +50,7 @@ cd ../frontend && npm install
 ```bash
 cp .env.example .env
 # Fill in: GOOGLE_API_KEY, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
-# DATABASE_URL, REDIS_URL, R2_* keys, VERCEL_TOKEN
+# JWT_SECRET, DATABASE_URL, REDIS_URL, and optional R2 / Razorpay keys
 ```
 
 ### 4. Run locally
@@ -64,12 +65,11 @@ cd backend && celery -A api.worker worker --loglevel=info
 cd frontend && npm run dev
 ```
 
-## Monetization Plan
+## Current Plan Model
 
-- **Free tier**: 1 portfolio, updates every 24h, `username.portfolioai.app`
-- **Pro ($9/mo)**: Custom domain, instant updates, multiple portfolios, theme selector
-- **Team ($29/mo)**: Company branding, white-label, priority queue, analytics
+- **Free tier**: 1 build for evaluation
+- **Pro (₹199 one-time)**: Publishing, editing, and ongoing use
 
 ## Deployment to Production
 
-See `infra/deploy.md` for Railway + Vercel setup instructions.
+See `infra/deploy.md` and `DEPLOYMENT_GUIDE.md` for the current deployment flow.

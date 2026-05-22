@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Github, RefreshCw, ExternalLink, CheckCircle,
-  Clock, AlertCircle, Zap, LogOut, FileText,
+  Clock, AlertCircle, Zap, LogOut, FileText, Sparkles,
 } from "lucide-react";
 import axios from "axios";
+import { buildApiUrl, buildAppUrl, buildGithubAuthUrl } from "@/lib/config";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = buildApiUrl("");
 
 type BuildStatus = "idle" | "pending" | "running" | "completed" | "failed";
 
@@ -51,7 +52,7 @@ const THEMES = [
   { id: "creative", label: "Creative", desc: "Bold & expressive" },
 ];
 
-export default function DashboardPage() {
+function DashboardPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -63,6 +64,7 @@ export default function DashboardPage() {
   const [selectedRepos, setSelectedRepos] = useState<string[]>([]);
   const [selectedTheme, setSelectedTheme] = useState("minimal");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [userPrompt, setUserPrompt] = useState("");
   const [jobId, setJobId] = useState<string | null>(null);
   const [buildStatus, setBuildStatus] = useState<BuildStatus>("idle");
   const [buildSteps, setBuildSteps] = useState<string[]>([]);
@@ -70,6 +72,7 @@ export default function DashboardPage() {
   const [siteUrl, setSiteUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -91,19 +94,24 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!token) return;
     const headers = { Authorization: `Bearer ${token}` };
-
     Promise.all([
       axios.get(`${API}/api/auth/me`, { headers }).catch(e => ({ data: null })),
       axios.get(`${API}/api/billing/subscription`, { headers }).catch(e => ({ data: { tier: "free", status: "active" } })),
+      axios.get(`${API}/api/portfolio/repos`, { headers }).catch(e => ({ data: { repos: [] } })),
+      axios.get(`${API}/api/portfolio/me`, { headers }).catch(e => ({ data: { portfolio: null } })),
     ])
-      .then(([userRes, subRes]) => {
+      .then(([userRes, subRes, reposRes, portfolioRes]) => {
         setUser(userRes.data || {});
         setSubscription(subRes.data || { tier: "free", status: "active" });
-        setRepos([]);  // Repos fetching is optional
+        setRepos(reposRes.data?.repos || []);
+        if (portfolioRes.data?.portfolio) {
+          setPortfolio(portfolioRes.data.portfolio);
+          setSiteUrl(portfolioRes.data.portfolio.site_url);
+        }
       })
       .catch(() => { localStorage.removeItem("portfolioai_token"); router.push("/"); })
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, searchParams, router]);
 
   const triggerBuild = async () => {
     if (!token) return;
@@ -118,17 +126,24 @@ export default function DashboardPage() {
       formData.append("selected_repos", JSON.stringify(selectedRepos));
     }
     if (resumeFile) formData.append("resume", resumeFile);
+    if (userPrompt.trim()) formData.append("user_prompt", userPrompt.trim());
 
     try {
       const res = await axios.post(`${API}/api/portfolio/build`, formData, {
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" },
+        headers: { Authorization: `Bearer ${token}` },
       });
       const newJobId = res.data.job_id;
       setJobId(newJobId);
       startSSEStream(newJobId);
     } catch (err: any) {
       setBuildStatus("failed");
-      setBuildError(err?.response?.data?.detail || "Failed to start build. Please try again.");
+      // Show paywall modal for 403 Forbidden (upgrade required)
+      if (err?.response?.status === 403) {
+        setShowPaywallModal(true);
+        setBuildError(null);
+      } else {
+        setBuildError(err?.response?.data?.detail || err?.response?.data?.message || "Failed to start build. Please try again.");
+      }
     }
   };
 
@@ -239,7 +254,7 @@ export default function DashboardPage() {
                 Link your GitHub account to fetch your repos and build an amazing portfolio automatically.
               </p>
               <a
-                href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=user:email,read:user&redirect_uri=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback`)}`}
+                href={buildGithubAuthUrl(token || undefined)}
                 className="inline-flex items-center gap-2 mt-3 bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm"
               >
                 <Github size={16} />
@@ -272,12 +287,27 @@ export default function DashboardPage() {
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
-              <h2 className="font-semibold text-gray-900 mb-1">Upload resume</h2>
-              <p className="text-xs text-gray-400 mb-4">PDF, JSON, or TXT · Helps AI write a better bio</p>
+              <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <Sparkles size={15} className="text-blue-500" />
+                Tell us about yourself
+              </h2>
+              <p className="text-xs text-gray-400 mb-3">Describe what you want, what to highlight, or how you want the design to look</p>
+              <textarea
+                value={userPrompt}
+                onChange={(e) => setUserPrompt(e.target.value)}
+                placeholder={`e.g. "I'm a ML engineer focused on NLP. Highlight my open source work. I want a clean dark look with a focus on research projects."`}
+                rows={4}
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              />
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 p-6">
+              <h2 className="font-semibold text-gray-900 mb-1">Upload documents</h2>
+              <p className="text-xs text-gray-400 mb-4">Resume, SOP, cover letter, bio — PDF, TXT, DOCX, JSON</p>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.json,.txt"
+                accept=".pdf,.json,.txt,.docx,.doc"
                 className="hidden"
                 onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
               />
@@ -286,7 +316,7 @@ export default function DashboardPage() {
                 className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-500 hover:border-blue-300 hover:text-blue-600 transition-all w-full justify-center"
               >
                 <FileText size={16} />
-                {resumeFile ? resumeFile.name : "Click to upload resume"}
+                {resumeFile ? resumeFile.name : "Click to upload document"}
               </button>
             </div>
 
@@ -324,28 +354,75 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <button
-              onClick={triggerBuild}
-              disabled={isBuilding}
-              className="w-full flex items-center justify-center gap-2.5 bg-gray-900 text-white font-semibold py-4 rounded-xl hover:bg-gray-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:-translate-y-0.5 active:translate-y-0"
-            >
-              {isBuilding ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Building your portfolio…
-                </>
-              ) : portfolio ? (
-                <>
-                  <RefreshCw size={18} />
-                  Rebuild portfolio
-                </>
-              ) : (
-                <>
-                  <Zap size={18} />
-                  Build my portfolio
-                </>
-              )}
-            </button>
+            {!user?.github_id ? (
+              <div className="w-full rounded-xl border-2 border-dashed border-gray-200 p-6 text-center">
+                <Github size={24} className="mx-auto text-gray-300 mb-3" />
+                <p className="text-sm font-semibold text-gray-700 mb-1">Connect GitHub to build</p>
+                <p className="text-xs text-gray-400 mb-4">Your portfolio is generated from your GitHub repos.</p>
+                <a
+                  href={buildGithubAuthUrl(token || undefined)}
+                  className="inline-flex items-center gap-2 bg-gray-900 text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  <Github size={15} /> Connect GitHub
+                </a>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  onClick={triggerBuild}
+                  disabled={isBuilding}
+                  className="w-full flex items-center justify-center gap-2.5 bg-gray-900 text-white font-semibold py-4 rounded-xl hover:bg-gray-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  {isBuilding ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Building your portfolio…
+                    </>
+                  ) : portfolio ? (
+                    <>
+                      <RefreshCw size={18} />
+                      Rebuild portfolio
+                    </>
+                  ) : (
+                    <>
+                      <Zap size={18} />
+                      Build my portfolio
+                    </>
+                  )}
+                </button>
+                {portfolio && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => router.push("/portfolio/edit")}
+                      className="flex-1 flex items-center justify-center gap-2.5 bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition-all"
+                    >
+                      <Sparkles size={16} />
+                      Edit Portfolio
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await axios.post(
+                            `${API}/api/portfolio/publish`,
+                            {},
+                            { headers: { Authorization: `Bearer ${token}` } }
+                          );
+                          setSiteUrl(res.data.public_url);
+                          alert(`Portfolio published! Visit: ${res.data.public_url}`);
+                          window.location.reload();
+                        } catch (err: any) {
+                          alert(err?.response?.data?.detail || "Failed to publish portfolio");
+                        }
+                      }}
+                      className="flex-1 flex items-center justify-center gap-2.5 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-all"
+                    >
+                      <ExternalLink size={16} />
+                      {portfolio.is_published ? "Republish" : "Publish"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="space-y-6">
@@ -380,26 +457,30 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {(siteUrl || portfolio?.site_url) && (
-              <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                  <p className="text-sm font-medium text-blue-100">Live</p>
+            {(portfolio || siteUrl) && (() => {
+              const slug = user?.github_username || portfolio?.site_url?.split("/").pop();
+              const portfolioUrl = siteUrl || buildAppUrl(`/portfolio/${slug}`);
+              return (
+                <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                    <p className="text-sm font-medium text-blue-100">Live</p>
+                  </div>
+                  <p className="font-semibold text-lg mb-4 break-all">
+                    {portfolioUrl.replace(/^https?:\/\//, "")}
+                  </p>
+                  <a
+                    href={portfolioUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 bg-white/20 hover:bg-white/30 transition-colors text-white text-sm font-medium px-4 py-2 rounded-lg w-fit"
+                  >
+                    <ExternalLink size={14} />
+                    View portfolio
+                  </a>
                 </div>
-                <p className="font-semibold text-lg mb-4 break-all">
-                  {(siteUrl || portfolio?.site_url)?.replace("https://", "")}
-                </p>
-                <a
-                  href={siteUrl || portfolio?.site_url || "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 bg-white/20 hover:bg-white/30 transition-colors text-white text-sm font-medium px-4 py-2 rounded-lg w-fit"
-                >
-                  <ExternalLink size={14} />
-                  View portfolio
-                </a>
-              </div>
-            )}
+              );
+            })()}
 
             {subscription && (
               <div className={`rounded-2xl border p-6 ${
@@ -530,6 +611,81 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {showPaywallModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl p-8 max-w-sm w-full">
+            <div className="text-center mb-6">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Zap size={24} className="text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Unlock All Features</h3>
+              <p className="text-gray-600 text-sm">
+                Upgrade to build unlimited portfolios, edit anytime, and publish to custom domains.
+              </p>
+            </div>
+
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 mb-6 text-center">
+              <p className="text-4xl font-bold text-blue-600 mb-1">₹199</p>
+              <p className="text-sm text-blue-700">One-time payment · Lifetime access</p>
+            </div>
+
+            <ul className="space-y-3 mb-6">
+              <li className="flex items-center gap-3 text-sm text-gray-700">
+                <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
+                Unlimited portfolio builds
+              </li>
+              <li className="flex items-center gap-3 text-sm text-gray-700">
+                <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
+                Edit and modify anytime
+              </li>
+              <li className="flex items-center gap-3 text-sm text-gray-700">
+                <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
+                Publish with custom domain
+              </li>
+              <li className="flex items-center gap-3 text-sm text-gray-700">
+                <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
+                7-day money-back guarantee
+              </li>
+            </ul>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowPaywallModal(false)}
+                className="flex-1 border border-gray-300 text-gray-700 font-semibold py-3 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+              >
+                Maybe later
+              </button>
+              <button
+                onClick={() => {
+                  setShowPaywallModal(false);
+                  router.push("/pricing");
+                }}
+                className="flex-1 bg-blue-600 text-white font-semibold py-3 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+              >
+                Upgrade Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-gray-500">Loading your dashboard…</p>
+          </div>
+        </div>
+      }
+    >
+      <DashboardPageInner />
+    </Suspense>
   );
 }

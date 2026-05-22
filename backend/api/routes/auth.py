@@ -10,6 +10,7 @@ from jose import jwt
 from datetime import datetime, timedelta
 import httpx
 import structlog
+from urllib.parse import urlencode
 
 from api.database import get_db, User
 from api.config import settings
@@ -31,17 +32,42 @@ def create_jwt(user_id: str) -> str:
     )
 
 
+def create_oauth_state(user_id: Optional[str] = None) -> str:
+    expire = datetime.utcnow() + timedelta(minutes=10)
+    payload = {"exp": expire}
+    if user_id:
+        payload["connect_user_id"] = user_id
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
 @router.get("/github")
-async def github_login():
+async def github_login(connect: bool = False, token: Optional[str] = None):
     """Redirect user to GitHub OAuth authorization page."""
-    params = f"client_id={settings.GITHUB_CLIENT_ID}&scope=repo,user:email"
-    return RedirectResponse(f"{GITHUB_AUTH_URL}?{params}")
+    params = {
+        "client_id": settings.GITHUB_CLIENT_ID,
+        "scope": "repo,user:email",
+    }
+    if connect:
+        if not token:
+            raise HTTPException(400, "Missing token for GitHub connect flow")
+        user_id = await decode_token(f"Bearer {token}")
+        params["state"] = create_oauth_state(user_id)
+    return RedirectResponse(f"{GITHUB_AUTH_URL}?{urlencode(params)}")
 
 
 @router.get("/github/callback")
-async def github_callback(code: str, db: AsyncSession = Depends(get_db)):
+async def github_callback(
+    code: str,
+    state: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
     """Handle GitHub OAuth callback — exchange code for token and upsert user."""
     try:
+        connect_user_id: Optional[str] = None
+        if state:
+            state_payload = jwt.decode(state, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+            connect_user_id = state_payload.get("connect_user_id")
+
         async with httpx.AsyncClient() as client:
             # Exchange code for GitHub access token
             token_resp = await client.post(
@@ -78,59 +104,94 @@ async def github_callback(code: str, db: AsyncSession = Depends(get_db)):
                         email = e["email"]
                         break
 
-        # Upsert user in DB
-        result = await db.execute(select(User).where(User.github_id == gh_user["id"]))
-        user = result.scalar_one_or_none()
-
-        if user:
+        if connect_user_id:
+            result = await db.execute(select(User).where(User.id == connect_user_id))
+            user = result.scalar_one_or_none()
+            if not user:
+                raise HTTPException(404, "User not found for GitHub connect flow")
             user.github_token = github_token
+            user.github_id = gh_user["id"]
+            user.github_username = gh_user["login"]
             user.avatar_url = gh_user.get("avatar_url")
-            user.name = gh_user.get("name")
-            user.email = email
+            user.name = gh_user.get("name") or user.name or gh_user["login"]
+            user.email = email or user.email
         else:
-            user = User(
-                github_id=gh_user["id"],
-                github_username=gh_user["login"],
-                github_token=github_token,
-                email=email,
-                name=gh_user.get("name") or gh_user["login"],
-                avatar_url=gh_user.get("avatar_url"),
-            )
-            db.add(user)
+            result = await db.execute(select(User).where(User.github_id == gh_user["id"]))
+            user = result.scalar_one_or_none()
+
+            if not user and email:
+                email_match = await db.execute(select(User).where(User.email == email))
+                user = email_match.scalar_one_or_none()
+
+            if user:
+                user.github_id = gh_user["id"]
+                user.github_username = gh_user["login"]
+                user.github_token = github_token
+                user.avatar_url = gh_user.get("avatar_url")
+                user.name = gh_user.get("name") or user.name or gh_user["login"]
+                user.email = email or user.email
+            else:
+                user = User(
+                    github_id=gh_user["id"],
+                    github_username=gh_user["login"],
+                    github_token=github_token,
+                    email=email,
+                    name=gh_user.get("name") or gh_user["login"],
+                    avatar_url=gh_user.get("avatar_url"),
+                )
+                db.add(user)
 
         await db.commit()
         await db.refresh(user)
 
-        # Issue JWT and redirect to frontend
-        token = create_jwt(user.id)
-        redirect_url = f"{settings.APP_URL}/dashboard?token={token}"
+        if connect_user_id:
+            redirect_url = f"{settings.APP_URL}/dashboard?github_connected=1"
+        else:
+            token = create_jwt(user.id)
+            redirect_url = f"{settings.APP_URL}/dashboard?token={token}"
         return RedirectResponse(url=redirect_url, status_code=302)
     except Exception as e:
         log.error("GitHub callback error", error=str(e))
         raise HTTPException(500, f"Authentication failed: {str(e)}")
 
 
-@router.get("/me")
-async def get_me(
-    authorization: Optional[str] = Header(None),
-    db: AsyncSession = Depends(get_db),
-):
-    """Decode JWT and return current user profile."""
+async def decode_token(authorization: Optional[str]) -> str:
+    """Decode JWT from Authorization header. Returns user_id. Raises HTTPException on error."""
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Not authenticated")
+        raise HTTPException(401, "Not authenticated - missing or invalid Authorization header")
 
-    token = authorization.split(" ")[1]
+    token = authorization.split(" ", 1)[1]
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-        user_id = payload["sub"]
-    except Exception:
+        user_id = payload.get("sub")
+        if not user_id:
+            raise ValueError("Token missing sub claim")
+        return user_id
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Session expired - please log in again")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(401, f"Invalid token - {str(e)}")
+    except Exception as e:
+        log.error("token_decode_error", error=str(e))
         raise HTTPException(401, "Invalid token")
 
+
+async def get_current_user(
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Get authenticated user from JWT. Use this dependency in protected routes."""
+    user_id = await decode_token(authorization)
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(404, "User not found")
+    return user
 
+
+@router.get("/me")
+async def get_me(user: User = Depends(get_current_user)):
+    """Decode JWT and return current user profile."""
     return {
         "id": user.id,
         "github_username": user.github_username,

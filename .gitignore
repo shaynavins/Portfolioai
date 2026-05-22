@@ -1,10 +1,14 @@
 .DS_Store
+.env
+dump.rdb
+*.rdb
 
 # Python
 .venv/
 venv/
 __pycache__/
 *.pyc
+backend/.venv/
 
 # Backend local state
 backend/.env
@@ -13,6 +17,8 @@ backend/.preview/
 # Frontend
 frontend/node_modules/
 frontend/.next/
+frontend/out/
+frontend/*.tsbuildinfo
 
 # Logs
 *.log

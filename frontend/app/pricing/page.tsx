@@ -19,7 +19,7 @@ export default function PricingPage() {
       router.push("/");
       return;
     }
-    router.push("/checkout?tier=pro");
+    router.push("/checkout?plan=pro");
   };
 
   return (
@@ -70,7 +70,7 @@ export default function PricingPage() {
             One simple plan. Everything included. No surprises.
           </p>
           <p className="text-slate-500">
-            Start free for 14 days — no credit card required
+            One free build to start, then a one-time upgrade for publishing and unlimited edits
           </p>
         </div>
       </section>
@@ -95,18 +95,18 @@ export default function PricingPage() {
                 {/* Pricing */}
                 <div className="text-center mb-8">
                   <div className="mb-2">
-                    <span className="text-6xl font-bold text-slate-900">₹200</span>
-                    <span className="text-xl text-slate-500 ml-2">/month</span>
+                    <span className="text-6xl font-bold text-slate-900">₹199</span>
+                    <span className="text-xl text-slate-500 ml-2">one-time</span>
                   </div>
                   <p className="text-slate-600 mb-4">
-                    Everything you need to showcase your work
+                    Lifetime access to all features
                   </p>
                   <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 mb-6">
                     <p className="text-green-800 font-semibold text-sm">
-                      🎉 14-day free trial — no credit card required
+                      🎉 One-time payment — no subscription
                     </p>
                     <p className="text-green-700 text-xs mt-1">
-                      After trial, cancel anytime
+                      Build unlimited portfolios forever
                     </p>
                   </div>
                 </div>
@@ -117,7 +117,7 @@ export default function PricingPage() {
                     onClick={handleStartTrial}
                     className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-bold py-4 px-6 rounded-xl mb-8 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg"
                   >
-                    Start Your Free Trial
+                    Upgrade to Pro
                     <ArrowRight size={20} />
                   </button>
                 )}
@@ -151,7 +151,7 @@ export default function PricingPage() {
               {/* Footer CTA */}
               <div className="bg-gradient-to-r from-blue-50 to-cyan-50 px-12 py-8 border-t border-blue-100">
                 <p className="text-slate-600 text-center text-sm">
-                  <span className="font-semibold">No credit card required.</span> Start building for free, upgrade anytime.
+                  <span className="font-semibold">One-time payment.</span> Get lifetime access to all features.
                 </p>
               </div>
             </div>
@@ -169,12 +169,12 @@ export default function PricingPage() {
           <div className="grid md:grid-cols-2 gap-8">
             {[
               {
-                q: "Can I use it for free?",
-                a: "Yes! You get a full 14-day free trial. No credit card required. After the trial, it's ₹200/month.",
+                q: "Is there a free trial?",
+                a: "You get one free portfolio build. Upgrade to ₹199 for unlimited edits, publishing, and ongoing use.",
               },
               {
-                q: "Can I cancel anytime?",
-                a: "Absolutely. Cancel your subscription anytime from your dashboard. No cancellation fees or contracts.",
+                q: "Can I get refunds?",
+                a: "Yes, we offer a 7-day money-back guarantee. If you're not satisfied, request a refund within 7 days.",
               },
               {
                 q: "What payment methods do you accept?",
@@ -186,7 +186,7 @@ export default function PricingPage() {
               },
               {
                 q: "How many portfolios can I create?",
-                a: "Unlimited! Create as many as you want. Perfect for showing different projects.",
+                a: "The paid plan is designed for ongoing use and publishing. Build limits and portfolio limits are enforced from the backend plan rules.",
               },
               {
                 q: "Is there support?",
@@ -216,7 +216,7 @@ export default function PricingPage() {
               onClick={handleStartTrial}
               className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-bold px-8 py-3 rounded-xl transition-all active:scale-95"
             >
-              Get Started Free
+              Upgrade to Pro
               <ArrowRight size={18} />
             </button>
           )}

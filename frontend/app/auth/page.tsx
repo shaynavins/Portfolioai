@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, User } from "lucide-react";
+import { buildApiUrl, buildGithubAuthUrl } from "@/lib/config";
 
 export default function AuthPage() {
   const router = useRouter();
@@ -21,13 +22,12 @@ export default function AuthPage() {
     setLoading(true);
 
     try {
-      const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const endpoint = isLogin ? "/login" : "/signup";
       const payload = isLogin
         ? { email: formData.email, password: formData.password }
         : { email: formData.email, password: formData.password, name: formData.name };
 
-      const res = await fetch(`${API}/api/auth${endpoint}`, {
+      const res = await fetch(buildApiUrl(`/api/auth${endpoint}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -147,7 +147,7 @@ export default function AuthPage() {
 
           {/* GitHub OAuth (secondary) */}
           <a
-            href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=user:email,read:user&redirect_uri=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback`)}`}
+            href={buildGithubAuthUrl()}
             className="w-full flex items-center justify-center gap-2 bg-gray-900 text-white font-semibold py-3 rounded-lg hover:bg-gray-800 transition-all"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">

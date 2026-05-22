@@ -83,7 +83,11 @@ class Settings(BaseSettings):
     VERCEL_TOKEN: str = ""
     VERCEL_TEAM_ID: str = ""
 
-    # ─── Stripe / Payments ────────────────────────────────────────────────────
+    # ─── Razorpay / Payments ─────────────────────────────────────────────────────
+    RAZORPAY_KEY_ID: str = ""
+    RAZORPAY_KEY_SECRET: str = ""
+    
+    # ─── Stripe / Payments (deprecated, use Razorpay) ────────────────────────────
     STRIPE_SECRET_KEY: str = ""
     STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""

@@ -51,10 +51,13 @@ class User(Base):
     github_id = Column(Integer, unique=True, nullable=True, index=True)
     github_username = Column(String, nullable=True)
     github_token = Column(Text, nullable=True)       # encrypted in prod
+    password_hash = Column(String, nullable=True)
     email = Column(String)
     name = Column(String)
     avatar_url = Column(String)
     plan = Column(Enum(PlanTier), default=PlanTier.FREE)
+    builds_this_month = Column(Integer, default=0)   # track monthly builds for free users
+    last_build_date = Column(DateTime(timezone=True))  # to reset builds_this_month monthly
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

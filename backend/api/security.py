@@ -16,23 +16,39 @@ def setup_cors(app: FastAPI) -> None:
     """
     Configure CORS middleware.
     In production, only allow specific origins.
+    In development, allow localhost.
     """
     origins = settings.ALLOWED_ORIGINS
     
     if settings.ENVIRONMENT == Environment.PRODUCTION:
-        # Production: strict CORS
+        # Production: strict CORS based on configured public URLs.
+        origins = list(dict.fromkeys([
+            *settings.ALLOWED_ORIGINS,
+            settings.APP_URL,
+            settings.API_URL,
+        ]))
+    elif settings.ENVIRONMENT == Environment.DEVELOPMENT:
+        # Development: allow localhost on any port
         origins = [
-            "https://portfolioai.app",
-            "https://www.portfolioai.app",
-            "https://*.portfolioai.app",  # subdomains
+            "http://localhost",
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:8000",
+            "http://127.0.0.1",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+            "http://127.0.0.1:8000",
         ]
+    
+    log.info("CORS configured", environment=settings.ENVIRONMENT, origins=origins)
     
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allow_headers=["*"],
+        expose_headers=["*"],
         max_age=86400,  # 24 hours
     )
 

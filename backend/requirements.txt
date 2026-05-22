@@ -35,7 +35,7 @@ PyGithub==2.3.0
 gitpython==3.1.43
 
 # Resume parsing
-pypdf2==3.0.1
+pypdf==4.3.1
 pdfplumber==0.11.1
 python-docx==1.1.2
 

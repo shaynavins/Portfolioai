@@ -1,7 +1,14 @@
 import json
+import os
 
 from api.config import settings
 from langchain_google_genai import ChatGoogleGenerativeAI
+
+try:
+    from langchain_anthropic import ChatAnthropic
+    CLAUDE_AVAILABLE = True
+except ImportError:
+    CLAUDE_AVAILABLE = False
 
 
 def create_gemini_llm(*, model: str | None = None, max_tokens: int | None = None):
@@ -10,6 +17,23 @@ def create_gemini_llm(*, model: str | None = None, max_tokens: int | None = None
         google_api_key=settings.GOOGLE_API_KEY,
         temperature=0,
         max_tokens=max_tokens,
+    )
+
+
+def create_claude_llm(*, model: str = "claude-3-5-sonnet-20241022", max_tokens: int | None = None):
+    """Create Claude LLM. Requires ANTHROPIC_API_KEY in environment."""
+    if not CLAUDE_AVAILABLE:
+        raise ImportError("langchain-anthropic is not installed")
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+
+    return ChatAnthropic(
+        model=model,
+        api_key=api_key,
+        temperature=0,
+        max_tokens=max_tokens or 4096,
     )
 
 
