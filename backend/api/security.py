@@ -59,6 +59,13 @@ def setup_trusted_hosts(app: FastAPI) -> None:
     Prevent Host header attacks.
     Only allow requests to specific domains.
     """
+    # Railway health checks can arrive with an internal Host header that does not
+    # match the public domain. Enforcing TrustedHostMiddleware here causes the
+    # service to fail health checks even though the app is healthy.
+    if settings.ENVIRONMENT != Environment.DEVELOPMENT:
+        log.info("Trusted host middleware disabled for deployment compatibility")
+        return
+
     allowed_hosts = {
         "localhost",
         "localhost:8000",
@@ -72,12 +79,11 @@ def setup_trusted_hosts(app: FastAPI) -> None:
             if hostname:
                 allowed_hosts.add(hostname)
     
-    if settings.ENVIRONMENT != Environment.DEVELOPMENT:
-        log.info("Trusted hosts configured", hosts=sorted(allowed_hosts))
-        app.add_middleware(
-            TrustedHostMiddleware,
-            allowed_hosts=sorted(allowed_hosts),
-        )
+    log.info("Trusted hosts configured", hosts=sorted(allowed_hosts))
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=sorted(allowed_hosts),
+    )
 
 
 def add_security_headers(app: FastAPI) -> None:
