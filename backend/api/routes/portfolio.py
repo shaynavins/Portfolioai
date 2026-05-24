@@ -22,6 +22,10 @@ from datetime import datetime, timedelta
 router = APIRouter()
 log = structlog.get_logger()
 
+
+def billing_bypass_enabled() -> bool:
+    return settings.TEST_BILLING_BYPASS
+
 # Build limits per tier (per month)
 BUILD_LIMITS = {
     "free": 1,
@@ -101,7 +105,7 @@ async def trigger_build(
         is_free = subscription is None
         
         # ─── FREE TIER: ONE BUILD ONLY ───
-        if is_free:
+        if is_free and not billing_bypass_enabled():
             # Check if user already has a portfolio built
             result = await db.execute(
                 select(Portfolio).where(Portfolio.user_id == user.id)
@@ -122,7 +126,7 @@ async def trigger_build(
         
         # ─── PRO/TEAM: CHECK MONTHLY LIMIT ───
         can_build = await check_build_limit(user, db)
-        if not can_build:
+        if not can_build and not billing_bypass_enabled():
             tier = user.plan.value if user.plan else "free"
             limit = BUILD_LIMITS.get(tier, BUILD_LIMITS["free"])
             
@@ -431,7 +435,7 @@ async def publish_portfolio(
         is_free = subscription is None
         
         # ─── PAYWALL: FREE USERS CANNOT PUBLISH ───
-        if is_free:
+        if is_free and not billing_bypass_enabled():
             raise HTTPException(
                 403,
                 detail={

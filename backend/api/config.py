@@ -125,6 +125,7 @@ class Settings(BaseSettings):
     FEATURE_WEBHOOKS: bool = True
     FEATURE_ANALYTICS: bool = False
     FEATURE_WHITE_LABEL: bool = False
+    TEST_BILLING_BYPASS: bool = False
 
 
 @lru_cache()
