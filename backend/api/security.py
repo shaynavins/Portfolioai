@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import structlog
+from urllib.parse import urlparse
 
 from api.config import settings, Environment
 
@@ -58,17 +59,24 @@ def setup_trusted_hosts(app: FastAPI) -> None:
     Prevent Host header attacks.
     Only allow requests to specific domains.
     """
-    allowed_hosts = [
+    allowed_hosts = {
         "localhost",
         "localhost:8000",
         "127.0.0.1",
         "api.portfolioai.app",
-    ]
+    }
+
+    for public_url in (settings.APP_URL, settings.API_URL):
+        if public_url:
+            hostname = urlparse(public_url).hostname or public_url
+            if hostname:
+                allowed_hosts.add(hostname)
     
     if settings.ENVIRONMENT != Environment.DEVELOPMENT:
+        log.info("Trusted hosts configured", hosts=sorted(allowed_hosts))
         app.add_middleware(
             TrustedHostMiddleware,
-            allowed_hosts=allowed_hosts,
+            allowed_hosts=sorted(allowed_hosts),
         )
 
 
