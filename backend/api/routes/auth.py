@@ -232,6 +232,7 @@ async def get_me(user: User = Depends(get_current_user)):
     """Decode JWT and return current user profile."""
     return {
         "id": user.id,
+        "github_id": user.github_id,
         "github_username": user.github_username,
         "name": user.name,
         "email": user.email,
