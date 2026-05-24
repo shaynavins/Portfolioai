@@ -22,6 +22,7 @@ email-validator==2.1.0  # For EmailStr validation
 # Payments
 sendgrid==6.11.0
 razorpay==1.4.1
+setuptools>=70.0.0
 
 # LangGraph + LangChain + Gemini
 langgraph==0.2.14
