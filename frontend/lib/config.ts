@@ -9,6 +9,9 @@ export const APP_BASE_URL = (
 ).replace(/\/$/, "");
 
 export function buildApiUrl(path: string): string {
+  if (!path) {
+    return API_BASE_URL;
+  }
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
