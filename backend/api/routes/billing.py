@@ -108,6 +108,9 @@ async def verify_payment(
 ):
     """Verify payment and create subscription."""
     try:
+        if not razorpay_client.is_configured():
+            raise HTTPException(500, "Payment processing not available")
+
         plan = req.plan
         if plan not in PLAN_PRICING:
             raise HTTPException(400, f"Invalid plan: {plan}")

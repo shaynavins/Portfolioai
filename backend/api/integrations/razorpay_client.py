@@ -14,8 +14,13 @@ import hashlib
 from typing import Optional, Dict, Any
 from datetime import datetime
 
-import razorpay
-from razorpay.client import Client as RazorpayClient
+try:
+    import razorpay
+except ImportError as exc:
+    razorpay = None
+    RAZORPAY_IMPORT_ERROR = exc
+else:
+    RAZORPAY_IMPORT_ERROR = None
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +42,15 @@ class RazorpayClient:
     
     def __init__(self, key_id: str, key_secret: str):
         """Initialize Razorpay client."""
-        if not key_id or not key_secret:
+        if razorpay is None:
+            logger.warning(
+                "Razorpay SDK unavailable - payment processing disabled",
+                exc_info=RAZORPAY_IMPORT_ERROR,
+            )
+            self.client = None
+            self.key_id = None
+            self.key_secret = None
+        elif not key_id or not key_secret:
             logger.warning("Razorpay credentials not provided - payment processing disabled")
             self.client = None
             self.key_id = None
