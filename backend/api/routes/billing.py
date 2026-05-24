@@ -30,6 +30,10 @@ PLAN_PRICING = {
 }
 
 
+def billing_bypass_enabled() -> bool:
+    return settings.TEST_BILLING_BYPASS
+
+
 class CheckoutRequest(BaseModel):
     plan: str
 
@@ -52,12 +56,28 @@ async def create_checkout_session(
         plan = req.plan
         if plan not in PLAN_PRICING:
             raise HTTPException(400, f"Invalid plan: {plan}. Must be 'pro'.")
-        
+
+        amount_paise = PLAN_PRICING[plan] * 100  # Convert INR to paise
+
+        if billing_bypass_enabled():
+            fake_order_id = f"order_test_{user.id}"
+            log.info("checkout_bypassed_for_testing", user_id=user.id, plan=plan, order_id=fake_order_id)
+            return {
+                "order_id": fake_order_id,
+                "amount": amount_paise,
+                "currency": "INR",
+                "key_id": "test_key",
+                "user_email": user.email,
+                "user_name": user.name or user.github_username,
+                "plan": plan,
+                "price_inr": PLAN_PRICING[plan],
+                "test_mode": True,
+            }
+
         if not razorpay_client.is_configured():
             raise HTTPException(500, "Payment processing not available")
-        
+
         # Create Razorpay order
-        amount_paise = PLAN_PRICING[plan] * 100  # Convert INR to paise
         
         try:
             order = razorpay_client.client.order.create({
@@ -108,12 +128,51 @@ async def verify_payment(
 ):
     """Verify payment and create subscription."""
     try:
-        if not razorpay_client.is_configured():
-            raise HTTPException(500, "Payment processing not available")
-
         plan = req.plan
         if plan not in PLAN_PRICING:
             raise HTTPException(400, f"Invalid plan: {plan}")
+
+        if billing_bypass_enabled():
+            result = await db.execute(
+                select(Subscription).where(Subscription.user_id == user.id)
+            )
+            subscription = result.scalar_one_or_none()
+
+            if subscription:
+                subscription.status = SubscriptionStatus.ACTIVE
+                subscription.updated_at = datetime.utcnow()
+            else:
+                subscription = Subscription(
+                    user_id=user.id,
+                    status=SubscriptionStatus.ACTIVE,
+                    razorpay_customer_id=req.razorpay_payment_id or f"test_payment_{user.id}",
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+                db.add(subscription)
+
+            await db.commit()
+            await db.refresh(subscription)
+
+            log.info(
+                "payment_verification_bypassed_for_testing",
+                user_id=user.id,
+                plan=plan,
+                payment_id=req.razorpay_payment_id,
+                order_id=req.razorpay_order_id,
+            )
+
+            return {
+                "status": "success",
+                "message": f"Subscription to {plan} plan activated (test mode)",
+                "subscription_id": str(subscription.id),
+                "tier": plan,
+                "expires_at": None,
+                "test_mode": True,
+            }
+
+        if not razorpay_client.is_configured():
+            raise HTTPException(500, "Payment processing not available")
         
         # Verify signature
         try:

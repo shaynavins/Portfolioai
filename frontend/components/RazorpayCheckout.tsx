@@ -79,6 +79,15 @@ export default function RazorpayCheckout({
       }
 
       const data = await res.json();
+      if (data.test_mode) {
+        await verifyPayment(
+          data.order_id,
+          `payment_test_${Date.now()}`,
+          "signature_test",
+          token
+        );
+        return;
+      }
       openRazorpayCheckout(data, token);
     } catch (err) {
       setError("Failed to create payment order");
