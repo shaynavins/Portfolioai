@@ -3,7 +3,7 @@ PortfolioAI — FastAPI Backend
 Main application entry point with production-grade security
 """
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
 import structlog
@@ -152,6 +152,22 @@ async def health():
         version="1.0.0",
         environment=settings.ENVIRONMENT,
     ).model_dump()
+
+
+@app.get("/")
+async def root():
+    """Root endpoint for platform health checks."""
+    return HealthResponse(
+        status="ok",
+        version="1.0.0",
+        environment=settings.ENVIRONMENT,
+    ).model_dump()
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    """Avoid noisy 404s for browsers and platform probes."""
+    return Response(status_code=204)
 
 
 @app.get("/preview/{slug}", response_class=HTMLResponse)
