@@ -10,7 +10,7 @@ from jose import jwt
 from datetime import datetime, timedelta
 import httpx
 import structlog
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 from api.database import get_db, User
 from api.config import settings
@@ -62,6 +62,9 @@ async def github_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Handle GitHub OAuth callback — exchange code for token and upsert user."""
+    if not code:
+        return RedirectResponse(url=f"{settings.APP_URL}/auth?error=no_code", status_code=302)
+
     try:
         connect_user_id: Optional[str] = None
         if state:
@@ -80,16 +83,42 @@ async def github_callback(
                 },
             )
             token_data = token_resp.json()
+            if token_resp.status_code != 200:
+                error_msg = f"github_token_exchange_failed:{token_resp.status_code}"
+                log.error("GitHub token exchange failed", status_code=token_resp.status_code, response=token_data)
+                return RedirectResponse(
+                    url=f"{settings.APP_URL}/auth?error={quote(error_msg)}",
+                    status_code=302,
+                )
+
+            if "error" in token_data:
+                error_msg = token_data.get("error_description") or token_data.get("error") or "github_oauth_failed"
+                log.error("GitHub OAuth returned error", response=token_data)
+                return RedirectResponse(
+                    url=f"{settings.APP_URL}/auth?error={quote(error_msg)}",
+                    status_code=302,
+                )
+
             github_token = token_data.get("access_token")
 
             if not github_token:
-                raise ValueError("GitHub OAuth failed")
+                log.error("GitHub OAuth access token missing", response=token_data)
+                return RedirectResponse(
+                    url=f"{settings.APP_URL}/auth?error=no_token",
+                    status_code=302,
+                )
 
             # Fetch GitHub user profile
             user_resp = await client.get(
                 f"{GITHUB_API_URL}/user",
                 headers={"Authorization": f"Bearer {github_token}"},
             )
+            if user_resp.status_code != 200:
+                log.error("GitHub user fetch failed", status_code=user_resp.status_code, response=user_resp.text)
+                return RedirectResponse(
+                    url=f"{settings.APP_URL}/auth?error=failed_to_fetch_user",
+                    status_code=302,
+                )
             gh_user = user_resp.json()
 
             # Fetch primary email if not public
@@ -99,6 +128,12 @@ async def github_callback(
                     f"{GITHUB_API_URL}/user/emails",
                     headers={"Authorization": f"Bearer {github_token}"},
                 )
+                if emails_resp.status_code != 200:
+                    log.error("GitHub emails fetch failed", status_code=emails_resp.status_code, response=emails_resp.text)
+                    return RedirectResponse(
+                        url=f"{settings.APP_URL}/auth?error=failed_to_fetch_email",
+                        status_code=302,
+                    )
                 for e in emails_resp.json():
                     if e.get("primary"):
                         email = e["email"]
@@ -151,8 +186,11 @@ async def github_callback(
             redirect_url = f"{settings.APP_URL}/dashboard?token={token}"
         return RedirectResponse(url=redirect_url, status_code=302)
     except Exception as e:
-        log.error("GitHub callback error", error=str(e))
-        raise HTTPException(500, f"Authentication failed: {str(e)}")
+        log.error("GitHub callback error", error=str(e), exc_info=True)
+        return RedirectResponse(
+            url=f"{settings.APP_URL}/auth?error=server_error",
+            status_code=302,
+        )
 
 
 async def decode_token(authorization: Optional[str]) -> str:
