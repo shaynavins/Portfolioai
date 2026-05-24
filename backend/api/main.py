@@ -113,6 +113,28 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Log unexpected exceptions with path context."""
+    trace_id = str(uuid.uuid4())
+    log.error(
+        "Unhandled exception",
+        trace_id=trace_id,
+        path=request.url.path,
+        method=request.method,
+        error=str(exc),
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "code": "internal_server_error",
+            "trace_id": trace_id,
+        },
+    )
+
+
 # Mount routers
 app.include_router(simple_auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])  # GitHub auth
