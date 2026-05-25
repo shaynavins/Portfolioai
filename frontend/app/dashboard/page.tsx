@@ -7,8 +7,9 @@ import {
   Clock, AlertCircle, Zap, LogOut, FileText, Sparkles,
 } from "lucide-react";
 import axios from "axios";
+import { buildApiUrl } from "@/lib/config";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = buildApiUrl("");
 
 type BuildStatus = "idle" | "pending" | "running" | "completed" | "failed";
 
