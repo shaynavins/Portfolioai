@@ -87,6 +87,8 @@ function DashboardContent() {
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [googleDocs, setGoogleDocs] = useState<GoogleDocFile[]>([]);
+  const [googleDocSearch, setGoogleDocSearch] = useState("");
+  const [hasSearchedGoogleDocs, setHasSearchedGoogleDocs] = useState(false);
   const [googleSyncing, setGoogleSyncing] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -160,12 +162,14 @@ function DashboardContent() {
     }
   };
 
-  const loadGoogleDocs = async () => {
+  const loadGoogleDocs = async (searchTerm = googleDocSearch) => {
     if (!token) return;
     setGoogleSyncing(true);
+    setHasSearchedGoogleDocs(true);
     try {
       const res = await axios.get(`${API}/api/google/docs`, {
         headers: { Authorization: `Bearer ${token}` },
+        params: { q: searchTerm.trim() || undefined, page_size: 100 },
       });
       setGoogleDocs(res.data.docs || []);
     } catch (err: any) {
@@ -187,6 +191,7 @@ function DashboardContent() {
       });
       setGoogleStatus(status.data);
       setGoogleDocs([]);
+      setHasSearchedGoogleDocs(false);
     } catch (err: any) {
       alert(err?.response?.data?.detail || "Could not connect this Google Doc");
     } finally {
@@ -432,7 +437,7 @@ function DashboardContent() {
                       {googleSyncing ? "Syncing…" : "Sync now"}
                     </button>
                     <button
-                      onClick={loadGoogleDocs}
+                      onClick={() => loadGoogleDocs()}
                       disabled={googleSyncing}
                       className="flex-1 border border-green-200 text-green-700 font-semibold py-2 rounded-lg hover:bg-green-100 disabled:opacity-50 text-sm"
                     >
@@ -443,7 +448,7 @@ function DashboardContent() {
               ) : (
                 <div>
                   <button
-                    onClick={loadGoogleDocs}
+                    onClick={() => loadGoogleDocs()}
                     disabled={googleSyncing}
                     className="w-full flex items-center justify-center gap-2 border border-blue-200 text-blue-700 font-semibold py-3 rounded-xl hover:bg-blue-50 disabled:opacity-50 transition-colors text-sm"
                   >
@@ -452,8 +457,41 @@ function DashboardContent() {
                 </div>
               )}
 
+              {googleStatus?.connected && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    loadGoogleDocs();
+                  }}
+                  className="mt-4 flex gap-2"
+                >
+                  <input
+                    value={googleDocSearch}
+                    onChange={(e) => setGoogleDocSearch(e.target.value)}
+                    placeholder="Search docs by name, e.g. Resume"
+                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <button
+                    type="submit"
+                    disabled={googleSyncing}
+                    className="bg-gray-900 text-white font-semibold px-4 rounded-xl hover:bg-gray-700 disabled:opacity-50 text-sm"
+                  >
+                    Search
+                  </button>
+                </form>
+              )}
+
+              {hasSearchedGoogleDocs && googleDocs.length === 0 && !googleSyncing && (
+                <p className="mt-3 text-xs text-gray-400">
+                  No Google Docs found{googleDocSearch.trim() ? ` for “${googleDocSearch.trim()}”` : ""}. Try another name or clear the search.
+                </p>
+              )}
+
               {googleDocs.length > 0 && (
-                <div className="mt-4 space-y-2 max-h-56 overflow-y-auto">
+                <div className="mt-4 space-y-2 max-h-64 overflow-y-auto">
+                  <p className="text-xs text-gray-400 px-1">
+                    Showing {googleDocs.length} Google Doc{googleDocs.length === 1 ? "" : "s"}{googleDocSearch.trim() ? ` matching “${googleDocSearch.trim()}”` : ""}
+                  </p>
                   {googleDocs.map((doc) => (
                     <button
                       key={doc.id}

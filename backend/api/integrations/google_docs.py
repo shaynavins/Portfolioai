@@ -90,8 +90,14 @@ async def ensure_access_token(sync) -> str:
     return sync.google_access_token
 
 
-async def list_resume_docs(access_token: str, page_size: int = 20) -> list[dict[str, Any]]:
+def _escape_drive_query_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+async def list_resume_docs(access_token: str, page_size: int = 50, name_query: str | None = None) -> list[dict[str, Any]]:
     query = "mimeType='application/vnd.google-apps.document' and trashed=false"
+    if name_query and name_query.strip():
+        query += f" and name contains '{_escape_drive_query_value(name_query.strip())}'"
     async with httpx.AsyncClient(timeout=20.0) as client:
         resp = await client.get(
             f"{DRIVE_API}/files",

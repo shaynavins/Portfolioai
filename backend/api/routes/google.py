@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from jose import jwt, JWTError
 from pydantic import BaseModel
@@ -113,16 +113,21 @@ async def google_status(user: User = Depends(get_current_user), db: AsyncSession
 
 
 @router.get("/docs")
-async def google_docs(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """List recent Google Docs so the user can pick their live resume document."""
+async def google_docs(
+    q: Optional[str] = Query(None, description="Search Google Docs by document name"),
+    page_size: int = Query(50, ge=1, le=100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List/search Google Docs so the user can pick their live resume document."""
     result = await db.execute(select(GoogleResumeSync).where(GoogleResumeSync.user_id == user.id))
     sync = result.scalar_one_or_none()
     if not sync or not sync.google_refresh_token:
         raise HTTPException(400, "Connect Google Docs first")
     access_token = await ensure_access_token(sync)
-    files = await list_resume_docs(access_token)
+    files = await list_resume_docs(access_token, page_size=page_size, name_query=q)
     await db.commit()
-    return {"docs": files}
+    return {"docs": files, "query": q or "", "page_size": page_size}
 
 
 @router.post("/resume-doc")
