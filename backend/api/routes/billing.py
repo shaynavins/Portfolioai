@@ -83,7 +83,8 @@ async def create_checkout_session(
             order = razorpay_client.client.order.create({
                 "amount": amount_paise,
                 "currency": "INR",
-                "receipt": f"user_{user.id}_{int(datetime.utcnow().timestamp())}",
+                # Razorpay receipt must be <= 40 chars. User IDs can be UUIDs, so keep it short.
+                "receipt": f"rcpt_{str(user.id)[:8]}_{int(datetime.utcnow().timestamp())}",
                 "notes": {
                     "user_id": user.id,
                     "plan": plan,
