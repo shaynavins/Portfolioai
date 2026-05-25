@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import structlog
 from pydantic import BaseModel
 
-from api.database import get_db, User
+from api.database import get_db, User, PlanTier
 from api.models.subscription import Subscription, SubscriptionStatus
 from api.routes.auth import get_current_user
 from api.config import settings
@@ -152,6 +152,7 @@ async def verify_payment(
                 )
                 db.add(subscription)
 
+            user.plan = PlanTier.PRO
             await db.commit()
             await db.refresh(subscription)
 
@@ -218,6 +219,7 @@ async def verify_payment(
             )
             db.add(subscription)
         
+        user.plan = PlanTier.PRO
         await db.commit()
         await db.refresh(subscription)
         

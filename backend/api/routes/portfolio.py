@@ -13,7 +13,7 @@ import structlog
 from api.database import get_db, User, Portfolio, BuildJob, JobStatus
 from api.config import settings
 from api.worker import run_portfolio_build
-from api.models.subscription import Subscription
+from api.models.subscription import Subscription, SubscriptionStatus
 from api.routes.auth import get_current_user
 from sqlalchemy import func
 from sqlalchemy.orm.attributes import flag_modified
@@ -53,8 +53,13 @@ async def check_build_limit(user: User, db: AsyncSession) -> bool:
     Check if user has reached their monthly build limit.
     Returns True if they can build, False if limit reached.
     """
-    # Get user's plan tier
-    tier = user.plan.value if user.plan else "free"
+    # Get user's plan tier. Prefer an active paid subscription over the cached user.plan field.
+    sub_result = await db.execute(
+        select(Subscription).where(Subscription.user_id == user.id)
+    )
+    subscription = sub_result.scalar_one_or_none()
+    active_statuses = {SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.AUTHENTICATED}
+    tier = "pro" if subscription and subscription.status in active_statuses else (user.plan.value if user.plan else "free")
     limit = BUILD_LIMITS.get(tier, BUILD_LIMITS["free"])
     
     # Unlimited tier
@@ -99,10 +104,11 @@ async def trigger_build(
             select(Subscription).where(Subscription.user_id == user.id)
         )
         subscription = sub_result.scalar_one_or_none()
-        tier = subscription.status.value if subscription else "free"
+        active_statuses = {SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.AUTHENTICATED}
+        tier = "pro" if subscription and subscription.status in active_statuses else "free"
         
-        # If no subscription, they're free tier
-        is_free = subscription is None
+        # If no active subscription, they're free tier
+        is_free = tier == "free"
         
         # ─── FREE TIER: ONE BUILD ONLY ───
         if is_free and not billing_bypass_enabled():
