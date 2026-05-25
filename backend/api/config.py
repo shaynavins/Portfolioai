@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_FAST_MODEL: str = "gemini-2.5-flash"
 
+    # ─── Google OAuth for Google Docs resume sync ──────────────────────────────
+    GOOGLE_OAUTH_CLIENT_ID: str = ""
+    GOOGLE_OAUTH_CLIENT_SECRET: str = ""
+
     # ─── Object Storage (Cloudflare R2) ────────────────────────────────────────
     R2_ACCOUNT_ID: str = ""
     R2_ACCESS_KEY_ID: str = ""

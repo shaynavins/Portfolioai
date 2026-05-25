@@ -1,15 +1,14 @@
 "use client";
 
-import { Suspense, useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Github, RefreshCw, ExternalLink, CheckCircle,
   Clock, AlertCircle, Zap, LogOut, FileText, Sparkles,
 } from "lucide-react";
 import axios from "axios";
-import { buildApiUrl, buildAppUrl, buildGithubAuthUrl } from "@/lib/config";
 
-const API = buildApiUrl("");
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type BuildStatus = "idle" | "pending" | "running" | "completed" | "failed";
 
@@ -46,13 +45,25 @@ interface Subscription {
   cancel_at_period_end?: boolean;
 }
 
+interface GoogleDocFile {
+  id: string;
+  name: string;
+  modifiedTime?: string;
+  webViewLink?: string;
+}
+
+interface GoogleStatus {
+  connected: boolean;
+  doc: null | { id: string; name: string; url?: string; modified_time?: string; last_synced_at?: string };
+}
+
 const THEMES = [
   { id: "minimal", label: "Minimal", desc: "Clean & professional" },
   { id: "dark", label: "Dark", desc: "Dark mode first" },
   { id: "creative", label: "Creative", desc: "Bold & expressive" },
 ];
 
-function DashboardPageInner() {
+export default function DashboardPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -73,6 +84,9 @@ function DashboardPageInner() {
   const [loading, setLoading] = useState(true);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showPaywallModal, setShowPaywallModal] = useState(false);
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
+  const [googleDocs, setGoogleDocs] = useState<GoogleDocFile[]>([]);
+  const [googleSyncing, setGoogleSyncing] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -94,13 +108,32 @@ function DashboardPageInner() {
   useEffect(() => {
     if (!token) return;
     const headers = { Authorization: `Bearer ${token}` };
+    const githubCode = searchParams.get("github_code");
+    if (githubCode) {
+      axios.post(`${API}/api/auth/github/connect`, { code: githubCode }, { headers })
+        .then(() => Promise.all([
+          axios.get(`${API}/api/auth/me`, { headers }),
+          axios.get(`${API}/api/billing/subscription`, { headers }).catch(e => ({ data: { tier: "free", status: "active" } })),
+        ]))
+        .then(([userRes, subRes]) => {
+          setUser(userRes.data || {});
+          setSubscription(subRes.data || { tier: "free", status: "active" });
+          setRepos([]);
+          router.replace("/dashboard");
+        })
+        .catch(() => { router.replace("/dashboard"); })
+        .finally(() => setLoading(false));
+      return;
+    }
+
     Promise.all([
       axios.get(`${API}/api/auth/me`, { headers }).catch(e => ({ data: null })),
       axios.get(`${API}/api/billing/subscription`, { headers }).catch(e => ({ data: { tier: "free", status: "active" } })),
       axios.get(`${API}/api/portfolio/repos`, { headers }).catch(e => ({ data: { repos: [] } })),
       axios.get(`${API}/api/portfolio/me`, { headers }).catch(e => ({ data: { portfolio: null } })),
+      axios.get(`${API}/api/google/status`, { headers }).catch(e => ({ data: null })),
     ])
-      .then(([userRes, subRes, reposRes, portfolioRes]) => {
+      .then(([userRes, subRes, reposRes, portfolioRes, googleRes]) => {
         setUser(userRes.data || {});
         setSubscription(subRes.data || { tier: "free", status: "active" });
         setRepos(reposRes.data?.repos || []);
@@ -108,10 +141,76 @@ function DashboardPageInner() {
           setPortfolio(portfolioRes.data.portfolio);
           setSiteUrl(portfolioRes.data.portfolio.site_url);
         }
+        if (googleRes.data) setGoogleStatus(googleRes.data);
       })
       .catch(() => { localStorage.removeItem("portfolioai_token"); router.push("/"); })
       .finally(() => setLoading(false));
   }, [token, searchParams, router]);
+
+  const connectGoogleDocs = async () => {
+    if (!token) return;
+    try {
+      const res = await axios.get(`${API}/api/google/auth-url`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      window.location.href = res.data.url;
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || "Google OAuth is not configured yet.");
+    }
+  };
+
+  const loadGoogleDocs = async () => {
+    if (!token) return;
+    setGoogleSyncing(true);
+    try {
+      const res = await axios.get(`${API}/api/google/docs`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setGoogleDocs(res.data.docs || []);
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || "Could not load Google Docs");
+    } finally {
+      setGoogleSyncing(false);
+    }
+  };
+
+  const selectGoogleResumeDoc = async (docId: string) => {
+    if (!token) return;
+    setGoogleSyncing(true);
+    try {
+      await axios.post(`${API}/api/google/resume-doc`, { doc_id: docId }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const status = await axios.get(`${API}/api/google/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setGoogleStatus(status.data);
+      setGoogleDocs([]);
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || "Could not connect this Google Doc");
+    } finally {
+      setGoogleSyncing(false);
+    }
+  };
+
+  const syncGoogleResume = async () => {
+    if (!token) return;
+    setGoogleSyncing(true);
+    try {
+      const res = await axios.post(`${API}/api/google/sync?force=true`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const status = await axios.get(`${API}/api/google/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setGoogleStatus(status.data);
+      alert(res.data.status === "unchanged" ? "No Google Doc changes detected." : "Resume data synced from Google Docs.");
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || "Could not sync Google resume");
+    } finally {
+      setGoogleSyncing(false);
+    }
+  };
 
   const triggerBuild = async () => {
     if (!token) return;
@@ -254,7 +353,7 @@ function DashboardPageInner() {
                 Link your GitHub account to fetch your repos and build an amazing portfolio automatically.
               </p>
               <a
-                href={buildGithubAuthUrl(token || undefined)}
+                href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=user:email,read:user&redirect_uri=${encodeURIComponent(`http://localhost:8000/api/auth/github/callback?connect=1`)}`}
                 className="inline-flex items-center gap-2 mt-3 bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm"
               >
                 <Github size={16} />
@@ -299,6 +398,73 @@ function DashboardPageInner() {
                 rows={4}
                 className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
               />
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 p-6">
+              <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <FileText size={15} className="text-blue-500" />
+                Live Google Docs resume
+              </h2>
+              <p className="text-xs text-gray-400 mb-4">
+                Connect a Google Doc once; every build polls it and AI incorporates resume edits automatically.
+              </p>
+
+              {!googleStatus?.connected ? (
+                <button
+                  onClick={connectGoogleDocs}
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition-colors text-sm"
+                >
+                  Connect Google Docs
+                </button>
+              ) : googleStatus.doc ? (
+                <div className="rounded-xl border border-green-100 bg-green-50 p-4">
+                  <p className="text-sm font-semibold text-green-900 truncate">{googleStatus.doc.name}</p>
+                  <p className="text-xs text-green-700 mt-1">
+                    Last synced {googleStatus.doc.last_synced_at ? new Date(googleStatus.doc.last_synced_at).toLocaleString() : "just now"}
+                  </p>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={syncGoogleResume}
+                      disabled={googleSyncing}
+                      className="flex-1 bg-green-600 text-white font-semibold py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
+                    >
+                      {googleSyncing ? "Syncing…" : "Sync now"}
+                    </button>
+                    <button
+                      onClick={loadGoogleDocs}
+                      disabled={googleSyncing}
+                      className="flex-1 border border-green-200 text-green-700 font-semibold py-2 rounded-lg hover:bg-green-100 disabled:opacity-50 text-sm"
+                    >
+                      Change doc
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <button
+                    onClick={loadGoogleDocs}
+                    disabled={googleSyncing}
+                    className="w-full flex items-center justify-center gap-2 border border-blue-200 text-blue-700 font-semibold py-3 rounded-xl hover:bg-blue-50 disabled:opacity-50 transition-colors text-sm"
+                  >
+                    {googleSyncing ? "Loading docs…" : "Choose Google Doc resume"}
+                  </button>
+                </div>
+              )}
+
+              {googleDocs.length > 0 && (
+                <div className="mt-4 space-y-2 max-h-56 overflow-y-auto">
+                  {googleDocs.map((doc) => (
+                    <button
+                      key={doc.id}
+                      onClick={() => selectGoogleResumeDoc(doc.id)}
+                      className="w-full text-left p-3 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-colors"
+                    >
+                      <p className="text-sm font-medium text-gray-900 truncate">{doc.name}</p>
+                      {doc.modifiedTime && <p className="text-xs text-gray-400 mt-0.5">Modified {new Date(doc.modifiedTime).toLocaleString()}</p>}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
@@ -360,7 +526,7 @@ function DashboardPageInner() {
                 <p className="text-sm font-semibold text-gray-700 mb-1">Connect GitHub to build</p>
                 <p className="text-xs text-gray-400 mb-4">Your portfolio is generated from your GitHub repos.</p>
                 <a
-                  href={buildGithubAuthUrl(token || undefined)}
+                  href={`https://github.com/login/oauth/authorize?client_id=${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}&scope=user:email,read:user&redirect_uri=${encodeURIComponent(`http://localhost:8000/api/auth/github/callback?connect=1`)}`}
                   className="inline-flex items-center gap-2 bg-gray-900 text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-gray-700 transition-colors"
                 >
                   <Github size={15} /> Connect GitHub
@@ -459,7 +625,7 @@ function DashboardPageInner() {
 
             {(portfolio || siteUrl) && (() => {
               const slug = user?.github_username || portfolio?.site_url?.split("/").pop();
-              const portfolioUrl = siteUrl || buildAppUrl(`/portfolio/${slug}`);
+              const portfolioUrl = `http://localhost:3000/portfolio/${slug}`;
               return (
                 <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
                   <div className="flex items-center gap-2 mb-1">
@@ -467,7 +633,7 @@ function DashboardPageInner() {
                     <p className="text-sm font-medium text-blue-100">Live</p>
                   </div>
                   <p className="font-semibold text-lg mb-4 break-all">
-                    {portfolioUrl.replace(/^https?:\/\//, "")}
+                    localhost:3000/portfolio/{slug}
                   </p>
                   <a
                     href={portfolioUrl}
@@ -670,22 +836,5 @@ function DashboardPageInner() {
         </div>
       )}
     </div>
-  );
-}
-
-export default function DashboardPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-gray-500">Loading your dashboard…</p>
-          </div>
-        </div>
-      }
-    >
-      <DashboardPageInner />
-    </Suspense>
   );
 }

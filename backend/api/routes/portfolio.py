@@ -10,10 +10,10 @@ import json
 import asyncio
 import structlog
 
-from api.database import get_db, User, Portfolio, BuildJob, JobStatus
+from api.database import get_db, User, Portfolio, BuildJob, JobStatus, GoogleResumeSync
 from api.config import settings
 from api.worker import run_portfolio_build
-from api.models.subscription import Subscription, SubscriptionStatus
+from api.models.subscription import Subscription
 from api.routes.auth import get_current_user
 from sqlalchemy import func
 from sqlalchemy.orm.attributes import flag_modified
@@ -22,13 +22,9 @@ from datetime import datetime, timedelta
 router = APIRouter()
 log = structlog.get_logger()
 
-
-def billing_bypass_enabled() -> bool:
-    return settings.TEST_BILLING_BYPASS
-
 # Build limits per tier (per month)
 BUILD_LIMITS = {
-    "free": 1,
+    "free": 100,  # Increased for testing
     "pro": 30,
     "team": None,  # Unlimited
 }
@@ -53,13 +49,8 @@ async def check_build_limit(user: User, db: AsyncSession) -> bool:
     Check if user has reached their monthly build limit.
     Returns True if they can build, False if limit reached.
     """
-    # Get user's plan tier. Prefer an active paid subscription over the cached user.plan field.
-    sub_result = await db.execute(
-        select(Subscription).where(Subscription.user_id == user.id)
-    )
-    subscription = sub_result.scalar_one_or_none()
-    active_statuses = {SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.AUTHENTICATED}
-    tier = "pro" if subscription and subscription.status in active_statuses else (user.plan.value if user.plan else "free")
+    # Get user's plan tier
+    tier = user.plan.value if user.plan else "free"
     limit = BUILD_LIMITS.get(tier, BUILD_LIMITS["free"])
     
     # Unlimited tier
@@ -93,7 +84,7 @@ async def trigger_build(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Build a portfolio and persist the generated result."""
+    """Build portfolio synchronously (no Celery needed for MVP)."""
     try:
         # Require GitHub connection
         if not user.github_token:
@@ -104,14 +95,13 @@ async def trigger_build(
             select(Subscription).where(Subscription.user_id == user.id)
         )
         subscription = sub_result.scalar_one_or_none()
-        active_statuses = {SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING, SubscriptionStatus.AUTHENTICATED}
-        tier = "pro" if subscription and subscription.status in active_statuses else "free"
+        tier = subscription.status.value if subscription else "free"
         
-        # If no active subscription, they're free tier
-        is_free = tier == "free"
+        # If no subscription, they're free tier
+        is_free = subscription is None
         
         # ─── FREE TIER: ONE BUILD ONLY ───
-        if is_free and not billing_bypass_enabled():
+        if is_free:
             # Check if user already has a portfolio built
             result = await db.execute(
                 select(Portfolio).where(Portfolio.user_id == user.id)
@@ -132,7 +122,7 @@ async def trigger_build(
         
         # ─── PRO/TEAM: CHECK MONTHLY LIMIT ───
         can_build = await check_build_limit(user, db)
-        if not can_build and not billing_bypass_enabled():
+        if not can_build:
             tier = user.plan.value if user.plan else "free"
             limit = BUILD_LIMITS.get(tier, BUILD_LIMITS["free"])
             
@@ -180,6 +170,27 @@ async def trigger_build(
                         doc_text = content.decode("utf-8", errors="ignore").strip()
             except Exception as e:
                 log.warning("Failed to parse document", error=str(e))
+
+        # ── Parse resume content from upload and/or synced Google Doc ─────
+        resume_profile = {}
+        if doc_text:
+            try:
+                from tools.resume_tool import ResumeTool
+                resume_profile = await ResumeTool()._parse_text(doc_text)
+            except Exception as e:
+                log.warning("Failed to parse uploaded resume text", error=str(e))
+
+        # If a Google Docs resume is connected, poll it and use it as the live source of truth.
+        try:
+            sync_result = await db.execute(select(GoogleResumeSync).where(GoogleResumeSync.user_id == user.id))
+            google_sync = sync_result.scalar_one_or_none()
+            if google_sync and google_sync.doc_id:
+                from api.routes.google import _sync_resume_doc
+                await _sync_resume_doc(google_sync, user, db, force=False)
+                if google_sync.parsed_resume:
+                    resume_profile = google_sync.parsed_resume
+        except Exception as e:
+            log.warning("Google resume sync skipped", error=str(e))
 
         # ── Build bio from prompt + document ─────────────────────────────
         prompt = (user_prompt or "").strip()
@@ -246,15 +257,20 @@ async def trigger_build(
         # ── Generate portfolio with Gemini AI ──────────────────────────────
         from api.integrations.portfolio_generator import generate_portfolio_html
         
+        resume_skills = resume_profile.get("skills") or []
+        combined_skills = list(dict.fromkeys([*resume_skills, *all_languages]))[:20]
+        display_name = resume_profile.get("name") or user.name or user.github_username
+        display_bio = resume_profile.get("summary") or gh_bio or "Software Developer"
+
         # Generate custom HTML portfolio based on user prompt
         portfolio_html = generate_portfolio_html(
             user_prompt=prompt,
-            user_name=user.name or user.github_username,
-            user_bio=gh_bio or "Software Developer",
+            user_name=display_name,
+            user_bio=display_bio,
             github_url=f"https://github.com/{user.github_username}",
             projects=repos_data,
             avatar_url=user.avatar_url or "",
-            skills=all_languages,
+            skills=combined_skills,
         )
 
         # ── Build unique accent color from username hash ───────────────────
@@ -265,8 +281,8 @@ async def trigger_build(
 
         # ── Assemble portfolio data ───────────────────────────────────────
         portfolio_data = {
-            "name": user.name or user.github_username,
-            "bio": gh_bio or "Software Developer",
+            "name": display_name,
+            "bio": display_bio,
             "github_url": f"https://github.com/{user.github_username}",
             "avatar_url": user.avatar_url,
             "username": user.github_username,
@@ -274,8 +290,10 @@ async def trigger_build(
             "company": gh_company,
             "theme": theme,
             "accent_hue": accent_hue,
-            "skills": all_languages,
+            "skills": combined_skills,
             "projects": repos_data,
+            "resume_profile": resume_profile,
+            "resume_source": "google_docs" if resume_profile and not doc_text else ("upload" if doc_text else None),
             "html": portfolio_html,  # Store Gemini-generated HTML
         }
 
@@ -441,7 +459,7 @@ async def publish_portfolio(
         is_free = subscription is None
         
         # ─── PAYWALL: FREE USERS CANNOT PUBLISH ───
-        if is_free and not billing_bypass_enabled():
+        if is_free:
             raise HTTPException(
                 403,
                 detail={

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from api.config import settings, validate_production_settings, Environment
 from api.database import init_db
-from api.routes import auth, portfolio, webhook, user, billing, simple_auth
+from api.routes import auth, portfolio, webhook, user, billing, simple_auth, google
 from api.security import setup_cors, setup_trusted_hosts, add_security_headers
 from api.validation import ErrorResponse, HealthResponse
 
@@ -142,6 +142,7 @@ app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"]
 app.include_router(webhook.router, prefix="/api/webhooks", tags=["webhooks"])
 app.include_router(user.router, prefix="/api/user", tags=["user"])
 app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
+app.include_router(google.router, prefix="/api/google", tags=["google"])
 
 
 @app.get("/health")

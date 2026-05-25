@@ -64,6 +64,28 @@ class User(Base):
     portfolios = relationship("Portfolio", back_populates="user")
     jobs = relationship("BuildJob", back_populates="user")
     subscription = relationship("Subscription", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    google_resume_sync = relationship("GoogleResumeSync", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+
+class GoogleResumeSync(Base):
+    __tablename__ = "google_resume_syncs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    google_access_token = Column(Text, nullable=True)      # encrypt in production
+    google_refresh_token = Column(Text, nullable=True)     # encrypt in production
+    google_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    doc_id = Column(String, nullable=True, index=True)
+    doc_name = Column(String, nullable=True)
+    doc_url = Column(Text, nullable=True)
+    doc_modified_time = Column(DateTime(timezone=True), nullable=True)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
+    last_resume_text = Column(Text, nullable=True)
+    parsed_resume = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", back_populates="google_resume_sync")
 
 
 class Portfolio(Base):
