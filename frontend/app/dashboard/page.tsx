@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Github, RefreshCw, ExternalLink, CheckCircle,
@@ -63,7 +63,7 @@ const THEMES = [
   { id: "creative", label: "Creative", desc: "Bold & expressive" },
 ];
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -836,5 +836,13 @@ export default function DashboardPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-500">Loading dashboard…</div>}>
+      <DashboardContent />
+    </Suspense>
   );
 }
